@@ -5,7 +5,7 @@ import { SLOTS, SLOT_POS, SLOT_GROUPS, THEMES, themePool, exhibitionPlayer, auto
 import { simulateGame } from '../engine/match.js';
 import { randomSeed } from '../engine/rng.js';
 import { S, rerender, toast, saveUi } from './state.js';
-import { esc, jersey, typeChips, ovrBadge, scoreboard, fieldSvg, ballSpots, playList, boxScore, driveChart, marginHistogram } from './common.js';
+import { esc, mon, typeChips, ovrBadge, scoreboard, fieldSvg, ballSpots, playList, boxScore, driveChart, marginHistogram } from './common.js';
 
 const THEME_ABBR = {
   gen1: 'KAN', gen2: 'JOH', gen3: 'HOE', gen4: 'SIN', gen5: 'UNO', gen6: 'KAL', gen7: 'ALO', gen8: 'GAL', gen9: 'PAL',
@@ -17,17 +17,18 @@ const SLOT_NUMBERS = {
 };
 const STYLE = { balanced: 0, run: 0.8, pass: -0.8 };
 const AGGR = { conservative: 0.15, normal: 0.5, aggressive: 0.9 };
+const FULL = 100; // everyone plays at full strength
 
 const built = { home: null, away: null };
 
 export function exTeam(side) {
   const cfg = S.ex[side];
-  const key = JSON.stringify(cfg);
+  const key = JSON.stringify([cfg.theme, cfg.overrides, cfg.style, cfg.aggr, side === 'away' ? S.ex.home.theme : S.ex.away.theme]);
   if (built[side]?.key === key) return built[side].team;
   const theme = THEMES.find((t) => t.id === cfg.theme) ?? THEMES[0];
   const ids = new Set(themePool(theme.id));
   for (const sp of Object.values(cfg.overrides)) if (sp) ids.add(sp);
-  const players = [...ids].map((s) => exhibitionPlayer(s, cfg.level, `${side}-${s}`));
+  const players = [...ids].map((s) => exhibitionPlayer(s, FULL, `${side}-${s}`));
   const locked = {};
   for (const [slot, sp] of Object.entries(cfg.overrides)) if (sp) locked[slot] = `${side}-${sp}`;
   const lineup = autoLineup(players, { locked });
@@ -123,7 +124,7 @@ export function renderExhibition() {
         <button class="btn big" data-action="ex-multi" title="Play the same matchup 200 times">Sim 200</button>
       </div>
       ${teamPanel('away')}
-      <p class="faint small" style="margin:0">Every Pokémon plays at the level you pick, with perfect IVs, a neutral nature, and its best ability. Ratings come from real base stats, size and body shape.</p>
+      <p class="faint small" style="margin:0">Every Pokémon plays at full strength with its best ability. Ratings come from its real base stats, size and body shape.</p>
     </aside>
     <section class="stack" style="min-width:0">${resultArea()}</section>
   </div>`;
@@ -143,13 +144,9 @@ function teamPanel(side) {
       <div class="row" style="gap:6px"><span class="pill">OVR ${st.ovr}</span><span class="pill">OFF ${st.off}</span><span class="pill">DEF ${st.def}</span></div>
     </div>
     <div class="ctl-grid">
-      <label class="field">Team
+      <label class="field" style="grid-column:1 / -1">Team
         <select id="ex-${side}-theme" data-action="ex-theme" data-side="${side}">
           ${Object.entries(groups).map(([g, ts]) => `<optgroup label="${g}">${ts.map((t) => `<option value="${t.id}"${t.id === cfg.theme ? ' selected' : ''}>${esc(t.name)}</option>`).join('')}</optgroup>`).join('')}
-        </select></label>
-      <label class="field">Level
-        <select id="ex-${side}-level" data-action="ex-level" data-side="${side}">
-          ${[5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100].map((l) => `<option value="${l}"${l === cfg.level ? ' selected' : ''}>Lv ${l}</option>`).join('')}
         </select></label>
       <label class="field">Play style
         <select id="ex-${side}-style" data-action="ex-style" data-side="${side}">
@@ -184,7 +181,7 @@ function lineupList(side, team) {
     const locked = S.ex[side].overrides[slot];
     return `<button class="slot${editing === slot ? ' cur' : ''}" data-action="ex-edit" data-side="${side}" data-slot="${slot}" title="${locked ? 'Your pick' : 'Picked by the optimizer'}">
       <span class="pos">${slot}${locked ? ' •' : ''}</span>
-      <span class="who">${jersey(p.species, p.num, 'sm')}<span style="min-width:0"><span class="who-name">${esc(DEX.get(p.species).name)}</span> ${typeChips(p.species)}</span></span>
+      <span class="who">${mon(p.species, p.num)}<span style="min-width:0"><span class="who-name">${esc(DEX.get(p.species).name)}</span> ${typeChips(p.species)}</span></span>
       ${ovrBadge(r.ovr[pos], `${POSITIONS[pos].name} overall`)}
     </button>${editing === slot ? picker(side, slot) : ''}`;
   }).join('')}</div>`).join('')}</div>`;
@@ -192,17 +189,16 @@ function lineupList(side, team) {
 
 function picker(side, slot) {
   const pos = SLOT_POS[slot];
-  const level = S.ex[side].level;
   const q = S.ex.pickQ.trim().toLowerCase();
   const list = POKEDEX
     .filter((sp) => !q || sp.name.toLowerCase().includes(q))
-    .map((sp) => ({ sp, ovr: ratingOf(exhibitionPlayer(sp.id, level)).ovr[pos] }))
+    .map((sp) => ({ sp, ovr: ratingOf(exhibitionPlayer(sp.id, FULL)).ovr[pos] }))
     .sort((a, b) => b.ovr - a.ovr)
     .slice(0, 60);
   return `<div class="picker" style="margin:4px 0 8px">
     <div style="padding:8px"><input type="search" id="ex-pick-q" data-action="ex-pick-q" placeholder="Search all 1,025 Pokémon for ${slot}" value="${esc(S.ex.pickQ)}" style="width:100%"></div>
     <div class="picker-list">${list.map(({ sp, ovr }) => `<button class="picker-item" data-action="ex-pick" data-side="${side}" data-slot="${slot}" data-sp="${sp.id}">
-      <span class="who">${jersey(sp.id, sp.id, 'sm')}<span style="min-width:0"><span class="who-name">${esc(sp.name)}</span> ${typeChips(sp.id)}</span></span>${ovrBadge(ovr)}</button>`).join('') || '<div class="empty">No Pokémon match.</div>'}</div>
+      <span class="who">${mon(sp.id)}<span style="min-width:0"><span class="who-name">${esc(sp.name)}</span> ${typeChips(sp.id)}</span></span>${ovrBadge(ovr)}</button>`).join('') || '<div class="empty">No Pokémon match.</div>'}</div>
   </div>`;
 }
 
@@ -294,7 +290,6 @@ export function handleExhibition(action, el) {
     case 'ex-view': S.ex.view = el.dataset.view; return true;
     case 'show-play': if (S.ex.watchI === null) S.ex.cur = Number(el.dataset.i); return true;
     case 'ex-theme': S.ex[side].theme = el.value; S.ex[side].overrides = {}; saveUi(); return true;
-    case 'ex-level': S.ex[side].level = Number(el.value); saveUi(); return true;
     case 'ex-style': S.ex[side].style = el.value; saveUi(); return true;
     case 'ex-aggr': S.ex[side].aggr = el.value; saveUi(); return true;
     case 'ex-toggle': S.ex.open[side] = !S.ex.open[side]; S.ex.editing = null; return true;

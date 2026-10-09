@@ -1,25 +1,24 @@
-// Legacy league screens: new league, dashboard, roster and depth chart, draft room,
-// schedule, standings, leaders, history and free agents.
-import { DEX, POSITIONS, POS_KEYS, FIELD_POS, potentials, expForLevel } from '../engine/ratings.js';
+// Season screens: new season, draft room, dashboard, roster and depth chart, schedule,
+// standings, leaders, free agents and save codes.
+import { DEX, POSITIONS, POS_KEYS, FIELD_POS } from '../engine/ratings.js';
 import { SLOTS, SLOT_POS, SLOT_GROUPS, ratingOf, nameOf } from '../engine/lineup.js';
 import {
-  createLeague, userTeam, teamById, rosterOf, currentPick, draftPlayer, aiPick, simToUserPick, autoDraftRest,
-  bestAvailable, startSeason, playWeek, simToPlayoffs, simSeason, standings, advanceOffseason, releasePlayer,
-  signFreeAgent, assignSlot, setLineup, teamRating, seasonLeaders, currentWeekGames, playerValue, careerScore,
-  ROSTER_MAX, TEAM_POOL, LEAGUE_VERSION,
+  createLeague, userTeam, teamById, rosterOf, currentPick, draftPlayer, simToUserPick, autoDraftRest,
+  bestAvailable, startSeason, playWeek, simToPlayoffs, simSeason, standings, releasePlayer, signFreeAgent,
+  assignSlot, setLineup, teamRating, seasonLeaders, currentWeekGames, playerValue,
+  ROSTER_MAX, ROSTER_SIZE, TEAM_POOL, LEAGUE_VERSION,
 } from '../engine/league.js';
 import { randomSeed } from '../engine/rng.js';
 import { S, toast, saveLeague } from './state.js';
-import { esc, jersey, typeChips, ovrBadge, scoreboard, fieldSvg, ballSpots, playList, boxScore, driveChart, playerCard } from './common.js';
+import { esc, mon, typeChips, ovrBadge, scoreboard, fieldSvg, ballSpots, playList, boxScore, driveChart, playerCard } from './common.js';
 
 const LG_TABS = [
-  ['home', 'Dashboard'], ['roster', 'Roster'], ['draft', 'Draft'], ['schedule', 'Schedule'], ['standings', 'Standings'],
-  ['stats', 'Leaders'], ['history', 'History'], ['fa', 'Free agents'], ['save', 'Save'],
+  ['home', 'Dashboard'], ['draft', 'Draft'], ['roster', 'Roster'], ['schedule', 'Schedule'], ['standings', 'Standings'],
+  ['stats', 'Leaders'], ['fa', 'Free agents'], ['save', 'Save'],
 ];
 const SWATCHES = ['#c8102e', '#1f6fd1', '#e0a100', '#2e8b3e', '#8a3fb8', '#e2561b', '#118a9c', '#41505e'];
 const PHASE_LABEL = {
-  draft: 'Fantasy draft', preseason: 'Preseason', regular: 'Regular season', playoffs: 'Playoffs',
-  offseason: 'Offseason', 'rookie-draft': 'Rookie draft',
+  draft: 'Draft', preseason: 'Preseason', regular: 'Regular season', playoffs: 'Playoffs', complete: 'Season complete',
 };
 
 const lgPlayer = (pid) => S.lg.players[pid];
@@ -28,7 +27,7 @@ const teamAbbr = (id) => teamById(S.lg, id)?.abbr ?? 'FA';
 const teamColor = (id) => teamById(S.lg, id)?.color ?? 'var(--ink-3)';
 
 function who(p, sub = '') {
-  return `<span class="who">${jersey(p.species, p.num || '–', 'sm')}<span style="min-width:0"><span class="who-name">${esc(nameOf(p))}</span> ${typeChips(p.species)}${sub ? `<br><span class="who-sub">${sub}</span>` : ''}</span></span>`;
+  return `<span class="who">${mon(p.species, p.num || '')}<span style="min-width:0"><span class="who-name">${esc(nameOf(p))}</span> ${typeChips(p.species)}${sub ? `<br><span class="who-sub">${sub}</span>` : ''}</span></span>`;
 }
 
 // ---------------------------------------------------------------- shell
@@ -39,12 +38,12 @@ export function renderLeague() {
   const tabs = LG_TABS.filter(([k]) => k !== 'draft' || lg.draft);
   if (S.lgTab === 'draft' && !lg.draft) S.lgTab = 'home';
   const row = standings(lg).find((r) => r.team === me.id);
-  const views = { home: dashboard, roster, draft: draftRoom, schedule, standings: standingsView, stats: leadersView, history: historyView, fa: freeAgents, save: saveView };
+  const views = { home: dashboard, roster, draft: draftRoom, schedule, standings: standingsView, stats: leadersView, fa: freeAgents, save: saveView };
   return `<div class="stack">
     <div class="spread">
       <div class="row" style="gap:12px">
         <span class="sb-dot" style="background:${me.color};height:44px;width:8px"></span>
-        <div><div class="eyebrow">Season ${lg.season} · ${PHASE_LABEL[lg.phase]}${lg.phase === 'regular' ? ` · Week ${lg.week} of ${lg.schedule.length}` : ''}</div>
+        <div><div class="eyebrow">${PHASE_LABEL[lg.phase]}${lg.phase === 'regular' ? ` · Week ${lg.week} of ${lg.schedule.length}` : ''}</div>
         <h1>${esc(me.name)}</h1></div>
         ${lg.phase !== 'draft' ? `<span class="pill">${row.w}-${row.l}${row.t ? `-${row.t}` : ''}</span>` : ''}
       </div>
@@ -58,7 +57,6 @@ export function renderLeague() {
 function primaryActions(lg) {
   switch (lg.phase) {
     case 'draft':
-    case 'rookie-draft':
       return S.lgTab === 'draft' ? '' : '<button class="btn primary" data-action="lg-tab" data-tab="draft">Go to the draft room</button>';
     case 'preseason':
       return '<button class="btn primary" data-action="lg-start">Start the season</button>';
@@ -66,16 +64,16 @@ function primaryActions(lg) {
       return `<button class="btn primary" data-action="lg-week">Play week ${lg.week}</button><button class="btn" data-action="lg-to-playoffs">Sim to playoffs</button>`;
     case 'playoffs': {
       const round = lg.playoffs.rounds[lg.playoffs.round - 1];
-      return `<button class="btn primary" data-action="lg-week">Play the ${esc(round.name)}</button>`;
+      return `<button class="btn primary" data-action="lg-week">Play the ${esc(round.name)}</button><button class="btn" data-action="lg-sim-season">Sim to the end</button>`;
     }
-    case 'offseason':
-      return '<button class="btn primary" data-action="lg-offseason">Start the offseason</button>';
+    case 'complete':
+      return `<button class="btn primary" data-action="lg-new-draft">${S.lgUi.confirmNew ? 'Click again to start a new draft' : 'Start a new draft'}</button>`;
     default:
       return '';
   }
 }
 
-// ---------------------------------------------------------------- new league
+// ---------------------------------------------------------------- new season
 function newLeagueForm() {
   const u = S.lgUi;
   u.newName ??= 'Route 1 Rumblers';
@@ -84,23 +82,23 @@ function newLeagueForm() {
   u.newTeams ??= 8;
   return `<div class="layout" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr)">
     <div class="panel stack">
-      <div><div class="eyebrow">Legacy mode</div><h1>Start a league</h1></div>
-      <p class="muted" style="margin:0">Draft from all 1,025 Pokémon, play a season, and keep going. Players gain experience on their real growth curve and evolve at their real level. A Magikarp you draft today can be your Gyarados pass rusher in two seasons.</p>
+      <div><div class="eyebrow">Draft season</div><h1>Draft a team</h1></div>
+      <p class="muted" style="margin:0">Every Pokémon is in the draft pool. Pick ${ROSTER_SIZE} players in a snake draft against the computer, set your depth chart, then play a full season and the playoffs for the Champion Bowl.</p>
       <div class="grid-2" style="gap:10px">
         <label class="field">Team name<input type="text" id="lg-new-name" data-action="lg-new" data-k="newName" value="${esc(u.newName)}" maxlength="32"></label>
         <label class="field">Abbreviation<input type="text" id="lg-new-abbr" data-action="lg-new" data-k="newAbbr" value="${esc(u.newAbbr)}" maxlength="4"></label>
         <label class="field">Teams in the league
           <select id="lg-new-teams" data-action="lg-new" data-k="newTeams">${[4, 6, 8, 10, 12].map((n) => `<option value="${n}"${n === u.newTeams ? ' selected' : ''}>${n} teams · ${2 * (n - 1)} games</option>`).join('')}</select></label>
-        <div class="field">Team color<div class="row" style="gap:6px">${SWATCHES.map((c) => `<button class="btn small" data-action="lg-color" data-c="${c}" aria-pressed="${c === u.newColor}" title="${c}" style="width:30px;height:30px;padding:0;background:${c};border:${c === u.newColor ? '3px solid var(--ink)' : '1px solid var(--line)'}"></button>`).join('')}</div></div>
+        <div class="field">Team color<div class="row" style="gap:6px">${SWATCHES.map((c) => `<button class="btn small" data-action="lg-color" data-c="${c}" aria-pressed="${c === u.newColor}" aria-label="Color ${c}" style="width:30px;height:30px;padding:0;background:${c};border:${c === u.newColor ? '3px solid var(--ink)' : '1px solid var(--line)'}"></button>`).join('')}</div></div>
       </div>
-      <div class="row"><button class="btn primary big" data-action="lg-create">Create league and draft</button></div>
-      <p class="faint small" style="margin:0">Your league saves in this browser. Use the Save tab to copy a save code you can load anywhere.</p>
+      <div class="row"><button class="btn primary big" data-action="lg-create">Start the draft</button></div>
+      <p class="faint small" style="margin:0">Your season saves in this browser. The Save tab gives you a save code to load it anywhere.</p>
     </div>
     <div class="panel stack">
-      <div><div class="eyebrow">Have a save code?</div><h2>Load a league</h2></div>
+      <div><div class="eyebrow">Have a save code?</div><h2>Load a season</h2></div>
       <textarea id="lg-load-code" data-action="lg-load-code" placeholder="Paste a save code here">${esc(S.lgUi.loadCode)}</textarea>
-      <div><button class="btn" data-action="lg-load">Load league</button></div>
-      <div class="card-section small muted">The other teams: ${TEAM_POOL.slice(0, 8).map((t) => esc(t.name)).join(', ')}, and more.</div>
+      <div><button class="btn" data-action="lg-load">Load season</button></div>
+      <div class="card-section small muted">Your rivals: ${TEAM_POOL.slice(0, 8).map((t) => esc(t.name)).join(', ')}, and more.</div>
     </div>
   </div>`;
 }
@@ -114,10 +112,10 @@ function dashboard() {
   const last = lastUserGame(lg);
   return `<div class="layout" style="grid-template-columns:minmax(0,1fr) minmax(300px,420px)">
     <div class="stack">
-      ${phaseCard(lg)}
+      ${lg.final ? finalCard(lg) : phaseCard(lg)}
       ${next ? matchupCard(next) : ''}
       ${last ? lastGameCard(last) : ''}
-      <div class="panel flush"><div class="panel-head"><h3>League news</h3></div><div class="news">${lg.news.slice(0, 18).map((n) => `<div class="news-item ${n.kind}"><span class="when">S${n.season}${n.week && n.phase === 'regular' ? ` W${n.week}` : ''}</span><span class="txt">${esc(n.text)}</span></div>`).join('')}</div></div>
+      <div class="panel flush"><div class="panel-head"><h3>League news</h3></div><div class="news">${lg.news.slice(0, 18).map((n) => `<div class="news-item ${n.kind}"><span class="when">${n.phase === 'regular' && n.week ? `Wk ${n.week}` : esc(PHASE_LABEL[n.phase] ?? '').split(' ')[0]}</span><span class="txt">${esc(n.text)}</span></div>`).join('')}</div></div>
     </div>
     <div class="stack">
       <div class="panel flush"><div class="panel-head"><h3>Standings</h3><button class="btn small ghost" data-action="lg-tab" data-tab="standings">Full table</button></div>
@@ -131,15 +129,25 @@ function dashboard() {
 
 function phaseCard(lg) {
   const text = {
-    draft: 'Every team drafts its roster from the full Pokédex. Higher levels play better now; potential shows what a player becomes at level 100 in its final form.',
-    preseason: 'Check your depth chart and play style, then start the season.',
-    regular: 'Play one week at a time, or sim to the playoffs. Starters gain experience every game and evolve when they reach their evolution level.',
+    draft: 'Every team drafts its roster from the full Pokédex in a snake draft. Each pick shows its best position and overall rating.',
+    preseason: 'Check your depth chart and game plan, then start the season.',
+    regular: 'Play one week at a time, or sim to the playoffs. Starters sometimes faint and miss a few weeks, so your backups matter.',
     playoffs: 'The top four teams play the Elite Four Round. The two winners meet in the Champion Bowl.',
-    offseason: 'The season is over. The offseason brings retirements and a rookie draft. Worst record picks first.',
-    'rookie-draft': 'Three rounds of rookies. They start at low levels with high potential.',
   }[lg.phase];
   return `<div class="panel"><div class="eyebrow">${PHASE_LABEL[lg.phase]}</div><p style="margin:6px 0 0">${text}</p></div>`;
 }
+
+function finalCard(lg) {
+  const f = lg.final;
+  const mine = f.champion === lg.userTeam;
+  return `<div class="panel stack" style="border-top:4px solid ${teamColor(f.champion)}">
+    <div class="eyebrow">Champion Bowl</div>
+    <h2>${mine ? 'You won the Champion Bowl!' : `${esc(teamName(f.champion))} are the champions`}</h2>
+    <div class="small muted">Runner-up: ${esc(teamName(f.runnerUp))}. Your regular-season finish: ${ordinalPlace(f.userFinish)} of ${lg.teams.length}.</div>
+    <div class="tiles">${Object.entries(f.awards).map(([k, a]) => `<div class="tile clickable" data-action="lg-player" data-pid="${a.pid}"><div class="k">${esc(k)}</div><div class="v" style="font-size:20px">${esc(a.name)}</div><div class="s">${esc(teamName(a.team))}</div></div>`).join('')}</div>
+  </div>`;
+}
+const ordinalPlace = (n) => `${n}${n % 10 === 1 && n % 100 !== 11 ? 'st' : n % 10 === 2 && n % 100 !== 12 ? 'nd' : n % 10 === 3 && n % 100 !== 13 ? 'rd' : 'th'}`;
 
 function nextUserGame(lg) {
   if (lg.phase === 'regular') {
@@ -185,13 +193,13 @@ function lastGameCard(g) {
 
 function teamSummaryCard(team) {
   const lg = S.lg;
-  const r = teamRating(lg, team);
   const roster = rosterOf(lg, team);
+  if (roster.length < SLOTS.length) return `<div class="panel stack"><h3>Your team</h3><p class="small muted" style="margin:0">${roster.length} of ${ROSTER_SIZE} players drafted.</p></div>`;
+  const r = teamRating(lg, team);
   const hurt = roster.filter((p) => p.injury);
-  const avgLv = Math.round(roster.reduce((s, p) => s + p.level, 0) / Math.max(1, roster.length));
   return `<div class="panel stack"><div class="spread"><h3>Your team</h3><button class="btn small ghost" data-action="lg-tab" data-tab="roster">Roster</button></div>
     <div class="tiles"><div class="tile"><div class="k">Overall</div><div class="v">${r.ovr}</div><div class="s">OFF ${r.off} · DEF ${r.def}</div></div>
-    <div class="tile"><div class="k">Roster</div><div class="v">${roster.length}</div><div class="s">Average Lv ${avgLv}</div></div></div>
+    <div class="tile"><div class="k">Roster</div><div class="v">${roster.length}</div><div class="s">${hurt.length ? `${hurt.length} fainted` : 'All healthy'}</div></div></div>
     ${hurt.length ? `<div class="small"><span class="pill warn">Fainted</span> ${hurt.map((p) => `${esc(nameOf(p))} (${p.injury} wk)`).join(', ')}</div>` : ''}</div>`;
 }
 
@@ -199,22 +207,23 @@ function teamSummaryCard(team) {
 function roster() {
   const lg = S.lg;
   const me = userTeam(lg);
-  setLineup(lg, me);
   const players = rosterOf(lg, me);
-  const slotOf = new Map(Object.entries(me.lineup).map(([s, pid]) => [pid, s]));
+  if (!players.length) return '<div class="panel empty">Your roster fills up as you draft.</div>';
+  const full = players.length >= SLOTS.length;
+  if (full) setLineup(lg, me);
+  const slotOf = new Map(full ? Object.entries(me.lineup).map(([s, pid]) => [pid, s]) : []);
   const ordered = [...players].sort((a, b) => {
     const sa = slotOf.has(a.pid) ? SLOTS.findIndex((s) => s.id === slotOf.get(a.pid)) : 99;
     const sb = slotOf.has(b.pid) ? SLOTS.findIndex((s) => s.id === slotOf.get(b.pid)) : 99;
     return sa - sb || playerValue(b) - playerValue(a);
   });
-  const key = `${lg.season}`;
   return `<div class="layout">
     <div class="stack">
       <div class="panel stack">
         <div class="spread"><h3>Depth chart</h3>
           <label class="row small" style="gap:6px"><input type="checkbox" id="lg-auto" data-action="lg-auto"${me.autoLineup ? ' checked' : ''}> Auto</label></div>
         <p class="faint small" style="margin:0">${me.autoLineup ? 'The coach picks the best healthy lineup before every game. Change any slot to take over.' : 'Your picks stay put. Fainted players are replaced for that game only.'}</p>
-        ${SLOT_GROUPS.map((g) => `<div><div class="group-label">${g.name}</div>${g.slots.map((slot) => depthRow(me, players, slot)).join('')}</div>`).join('')}
+        ${full ? SLOT_GROUPS.map((g) => `<div><div class="group-label">${g.name}</div>${g.slots.map((slot) => depthRow(me, players, slot)).join('')}</div>`).join('') : '<p class="small muted">The depth chart opens when you have 24 players.</p>'}
       </div>
       <div class="panel stack"><h3>Game plan</h3>
         <label class="field">Play style<select id="lg-style" data-action="lg-strat" data-k="runBias">${[[0.8, 'Run first'], [0, 'Balanced'], [-0.8, 'Air raid']].map(([v, l]) => `<option value="${v}"${Number(me.strategy.runBias) === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
@@ -224,15 +233,15 @@ function roster() {
     </div>
     <div class="panel flush" style="min-width:0">
       <div class="panel-head"><h3>Roster</h3><span class="faint small">${players.length} of ${ROSTER_MAX} · click a player for the full card</span></div>
-      <div class="table-wrap"><table class="data"><thead><tr><th class="l">Player</th><th class="l">Slot</th><th>Lv</th><th>Pos</th><th>OVR</th><th>POT</th><th>Seasons</th><th class="l">This season</th></tr></thead><tbody>
+      <div class="table-wrap"><table class="data"><thead><tr><th class="l">Player</th><th class="l">Slot</th><th>Pos</th><th>OVR</th><th class="l">This season</th></tr></thead><tbody>
       ${ordered.map((p) => {
         const r = ratingOf(p);
         const slot = slotOf.get(p.pid);
         const pos = slot ? SLOT_POS[slot] : r.best;
-        return `<tr class="clickable" data-action="lg-player" data-pid="${p.pid}"><td class="l">${who(p, p.rookieSeason === lg.season ? 'Rookie' : '')}</td>
+        return `<tr class="clickable" data-action="lg-player" data-pid="${p.pid}"><td class="l">${who(p)}</td>
           <td class="l">${slot ? `<b>${slot}</b>` : '<span class="faint">Bench</span>'}${p.injury ? ` <span class="pill warn">Out ${p.injury}</span>` : ''}</td>
-          <td>${p.level}</td><td>${pos}</td><td>${ovrBadge(r.ovr[pos])}</td><td class="faint">${potentials(p)[pos]}</td><td>${p.seasons}</td>
-          <td class="l small muted">${statSummary(p.stats[key])}</td></tr>`;
+          <td>${pos}</td><td>${ovrBadge(r.ovr[pos])}</td>
+          <td class="l small muted">${statSummary(p.stats.reg)}</td></tr>`;
       }).join('')}
       </tbody></table></div>
     </div>
@@ -245,7 +254,7 @@ function depthRow(team, players, slot) {
   const options = [...players].sort((a, b) => ratingOf(b).ovr[pos] - ratingOf(a).ovr[pos]);
   return `<div class="row" style="gap:8px;flex-wrap:nowrap;padding:2px 0">
     <span style="width:38px;font:700 12px/1 var(--font-head);letter-spacing:.08em;color:var(--ink-3)">${slot}</span>
-    <select id="lg-slot-${slot}" data-action="lg-assign" data-slot="${slot}" style="flex:1;min-width:0">
+    <select id="lg-slot-${slot}" data-action="lg-assign" data-slot="${slot}" aria-label="${POSITIONS[pos].name} ${slot}" style="flex:1;min-width:0">
       ${options.map((p) => `<option value="${p.pid}"${p.pid === cur ? ' selected' : ''}${p.injury ? ' disabled' : ''}>${esc(nameOf(p))} · ${ratingOf(p).ovr[pos]}${p.injury ? ' (fainted)' : ''}</option>`).join('')}
     </select>
     ${cur ? ovrBadge(ratingOf(lgPlayer(cur)).ovr[pos]) : ''}
@@ -278,16 +287,17 @@ function draftRoom() {
     .map((p) => {
       const r = ratingOf(p);
       const pos = u.draftPos === 'all' ? r.best : u.draftPos;
-      return { p, r, pos, ovr: r.ovr[pos], pot: potentials(p)[pos] };
+      return { p, r, pos, ovr: r.ovr[pos] };
     })
-    .sort((a, b) => (d.kind === 'rookie' ? b.pot - a.pot : 0) || b.ovr - a.ovr || b.pot - a.pot)
+    .sort((a, b) => b.ovr - a.ovr || a.p.species - b.p.species)
     .slice(0, 80);
   const recent = d.picks.slice(Math.max(0, d.current - 14), d.current).reverse();
   const mine = d.picks.filter((p) => p.team === lg.userTeam && p.pid);
   const needs = draftNeeds(lg);
+  const keys = u.draftPos === 'all' ? ['SPD', 'STR', 'AWR'] : Object.entries(POSITIONS[u.draftPos].w).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k]) => k);
   return `<div class="stack">
     <div class="panel spread" style="border-left:6px solid ${pick ? teamColor(pick.team) : 'var(--line)'}">
-      <div><div class="eyebrow">${d.kind === 'fantasy' ? 'Fantasy draft' : 'Rookie draft'} · Round ${pick?.round ?? d.rounds} of ${d.rounds} · Pick ${Math.min(d.current + 1, d.picks.length)} of ${d.picks.length}</div>
+      <div><div class="eyebrow">Round ${pick?.round ?? d.rounds} of ${d.rounds} · Pick ${Math.min(d.current + 1, d.picks.length)} of ${d.picks.length}</div>
         <h2>${pick ? (onClock ? 'You are on the clock' : `${esc(teamName(pick.team))} are picking`) : 'The draft is over'}</h2></div>
       <div class="row">
         ${onClock && recommend ? `<button class="btn primary" data-action="lg-draft" data-pid="${recommend}">Draft ${esc(nameOf(lgPlayer(recommend)))}</button>` : ''}
@@ -298,21 +308,21 @@ function draftRoom() {
     <div class="layout" style="grid-template-columns:minmax(0,1fr) minmax(260px,330px)">
       <div class="panel flush" style="min-width:0">
         <div class="panel-head">
-          <div class="row"><input type="search" id="lg-draft-q" data-action="lg-draft-q" placeholder="Search the pool" value="${esc(u.draftQ)}">
-          <select id="lg-draft-pos" data-action="lg-draft-pos"><option value="all">Best position</option>${POS_KEYS.map((k) => `<option value="${k}"${u.draftPos === k ? ' selected' : ''}>${POSITIONS[k].name}</option>`).join('')}</select></div>
+          <div class="row"><input type="search" id="lg-draft-q" data-action="lg-draft-q" placeholder="Search the pool" value="${esc(u.draftQ)}" aria-label="Search the draft pool">
+          <select id="lg-draft-pos" data-action="lg-draft-pos" aria-label="Position"><option value="all">Best position</option>${POS_KEYS.map((k) => `<option value="${k}"${u.draftPos === k ? ' selected' : ''}>${POSITIONS[k].name}</option>`).join('')}</select></div>
           <span class="faint small">${d.pool.length} available · top 80 shown</span>
         </div>
-        <div class="table-wrap"><table class="data"><thead><tr><th class="l">Player</th><th>Lv</th><th>Pos</th><th>OVR</th><th>POT</th><th>SPD</th><th>STR</th><th>AWR</th><th></th></tr></thead><tbody>
-        ${pool.map(({ p, r, pos, ovr, pot }) => `<tr><td class="l clickable" data-action="lg-player" data-pid="${p.pid}">${who(p, DEX.get(p.species).genus)}</td><td>${p.level}</td><td>${pos}</td><td>${ovrBadge(ovr)}</td><td><b>${pot}</b></td><td>${r.attrs.SPD}</td><td>${r.attrs.STR}</td><td>${r.attrs.AWR}</td>
+        <div class="table-wrap"><table class="data"><thead><tr><th class="l">Player</th><th>Pos</th><th>OVR</th>${keys.map((k) => `<th>${k}</th>`).join('')}<th></th></tr></thead><tbody>
+        ${pool.map(({ p, r, pos, ovr }) => `<tr><td class="l clickable" data-action="lg-player" data-pid="${p.pid}">${who(p, esc(DEX.get(p.species).genus))}</td><td>${pos}</td><td>${ovrBadge(ovr)}</td>${keys.map((k) => `<td>${r.attrs[k]}</td>`).join('')}
           <td>${onClock ? `<button class="btn small primary" data-action="lg-draft" data-pid="${p.pid}">Draft</button>` : ''}</td></tr>`).join('')}
         </tbody></table></div>
       </div>
       <div class="stack">
-        <div class="panel"><h3>Your needs</h3><p class="small muted" style="margin:6px 0 0">${needs.length ? needs.map(([pos, n]) => `${n} ${pos}`).join(' · ') : 'Every starting slot is filled. Draft for depth and potential.'}</p></div>
-        <div class="panel flush"><div class="panel-head"><h3>Your picks</h3><span class="faint small">${mine.length}</span></div>
-          <div class="news">${mine.slice().reverse().map((pk) => `<div class="news-item"><span class="when">R${pk.round}</span><span class="txt">${esc(nameOf(lgPlayer(pk.pid)))} · Lv ${lgPlayer(pk.pid).level}</span></div>`).join('') || '<div class="empty small">No picks yet.</div>'}</div></div>
+        <div class="panel"><h3>Your needs</h3><p class="small muted" style="margin:6px 0 0">${needs.length ? needs.map(([pos, n]) => `${n} ${pos}`).join(' · ') : 'Every starting slot is filled. Draft backups for when players faint.'}</p></div>
+        <div class="panel flush"><div class="panel-head"><h3>Your picks</h3><span class="faint small">${mine.length} of ${d.rounds}</span></div>
+          <div class="news">${mine.slice().reverse().map((pk) => `<div class="news-item"><span class="when">Rd ${pk.round}</span><span class="txt">${esc(nameOf(lgPlayer(pk.pid)))} · ${ratingOf(lgPlayer(pk.pid)).best}</span></div>`).join('') || '<div class="empty small">No picks yet.</div>'}</div></div>
         <div class="panel flush"><div class="panel-head"><h3>Recent picks</h3></div>
-          <div class="news">${recent.map((pk) => `<div class="news-item"><span class="when">${esc(teamAbbr(pk.team))}</span><span class="txt">${esc(nameOf(lgPlayer(pk.pid)))} · Lv ${lgPlayer(pk.pid).level}</span></div>`).join('') || '<div class="empty small">No picks yet.</div>'}</div></div>
+          <div class="news">${recent.map((pk) => `<div class="news-item"><span class="when">${esc(teamAbbr(pk.team))}</span><span class="txt">${esc(nameOf(lgPlayer(pk.pid)))} · ${ratingOf(lgPlayer(pk.pid)).best}</span></div>`).join('') || '<div class="empty small">No picks yet.</div>'}</div></div>
       </div>
     </div>
   </div>`;
@@ -333,7 +343,6 @@ function draftNeeds(lg) {
 // ---------------------------------------------------------------- schedule
 function schedule() {
   const lg = S.lg;
-  const weeks = lg.schedule;
   const po = lg.playoffs;
   const gameRow = (g) => {
     const res = g.result;
@@ -347,7 +356,7 @@ function schedule() {
   return `<div class="stack">
     ${po ? `<div class="panel flush"><div class="panel-head"><h3>Playoffs</h3>${po.champion ? `<span class="pill flag">Champion: ${esc(teamName(po.champion))}</span>` : ''}</div>
       <div class="table-wrap"><table class="data"><tbody>${po.rounds.filter(Boolean).map((r) => `<tr><td class="l" colspan="6"><b>${esc(r.name)}</b></td></tr>${r.games.map(gameRow).join('')}`).join('')}</tbody></table></div></div>` : ''}
-    ${weeks.map((w) => `<div class="panel flush"><div class="panel-head"><h3>Week ${w.week}</h3>${w.week === lg.week && lg.phase === 'regular' ? '<span class="pill flag">Next up</span>' : ''}</div>
+    ${lg.schedule.map((w) => `<div class="panel flush"><div class="panel-head"><h3>Week ${w.week}</h3>${w.week === lg.week && lg.phase === 'regular' ? '<span class="pill flag">Next up</span>' : ''}</div>
       <div class="table-wrap"><table class="data"><tbody>${w.games.map(gameRow).join('')}</tbody></table></div></div>`).join('') || '<div class="panel empty">The schedule appears after the draft.</div>'}
   </div>`;
 }
@@ -359,7 +368,7 @@ function standingsView() {
   return `<div class="panel flush"><div class="table-wrap"><table class="data"><thead><tr><th class="l">Team</th><th>W</th><th>L</th><th>T</th><th>Pct</th><th>PF</th><th>PA</th><th>Diff</th><th>Streak</th><th>OVR</th><th>OFF</th><th>DEF</th></tr></thead><tbody>
     ${rows.map((r, i) => {
       const t = teamById(lg, r.team);
-      const tr = teamRating(lg, t);
+      const tr = t.roster.length >= SLOTS.length ? teamRating(lg, t) : { ovr: '–', off: '–', def: '–' };
       return `<tr class="${t.user ? 'me' : ''}"><td class="l">${i + 1}. <span class="tm-tag" style="background:${t.color}"></span>${esc(t.name)}</td><td>${r.w}</td><td>${r.l}</td><td>${r.t}</td><td>${r.pct.toFixed(3).replace(/^0/, '')}</td><td>${r.pf}</td><td>${r.pa}</td><td>${r.pf - r.pa > 0 ? '+' : ''}${r.pf - r.pa}</td><td>${r.streak}</td><td>${tr.ovr}</td><td>${tr.off}</td><td>${tr.def}</td></tr>`;
     }).join('')}
   </tbody></table></div><p class="faint small" style="padding:0 14px">Top four make the playoffs. Ties break on point differential, then points scored.</p></div>`;
@@ -368,32 +377,12 @@ function standingsView() {
 // ---------------------------------------------------------------- leaders
 function leadersView() {
   const lg = S.lg;
-  const seasons = [lg.season, ...lg.history.map((h) => h.season)].filter((v, i, a) => a.indexOf(v) === i);
-  const season = S.lgUi.leaderSeason ?? lg.season;
-  const leaders = seasonLeaders(lg, season, 5);
-  return `<div class="stack">
-    <div class="row"><label class="field">Season<select id="lg-leader-season" data-action="lg-leader-season">${seasons.map((s) => `<option value="${s}"${s === season ? ' selected' : ''}>Season ${s}</option>`).join('')}</select></label></div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px">
+  const leaders = seasonLeaders(lg, 5);
+  return `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px">
     ${Object.entries(leaders).map(([cat, list]) => `<div class="panel flush"><div class="panel-head"><h3>${cat}</h3></div>
       ${list.length ? `<table class="data"><tbody>${list.map((x, i) => `<tr class="clickable${teamById(lg, x.team)?.user ? ' me' : ''}" data-action="lg-player" data-pid="${x.pid}"><td class="l">${i + 1}. <span class="tm-tag" style="background:${teamColor(x.team)}"></span>${esc(x.name)} <span class="faint">${esc(teamAbbr(x.team))}</span></td><td><b>${x.value}</b></td></tr>`).join('')}</tbody></table>` : '<div class="empty small">No games yet.</div>'}</div>`).join('')}
-    </div></div>`;
-}
-
-// ---------------------------------------------------------------- history
-function historyView() {
-  const lg = S.lg;
-  const hof = Object.values(lg.players).filter((p) => p.hallOfFame).sort((a, b) => careerScore(b) - careerScore(a));
-  return `<div class="stack">
-    <div class="panel flush"><div class="panel-head"><h3>Champions</h3></div>
-      ${lg.history.length ? `<div class="table-wrap"><table class="data"><thead><tr><th class="l">Season</th><th class="l">Champion</th><th class="l">Runner-up</th><th>Your finish</th><th class="l">MVP</th><th class="l">Defensive POY</th><th class="l">Rookie of the Year</th></tr></thead><tbody>
-      ${lg.history.map((h) => `<tr><td class="l">${h.season}</td><td class="l"><span class="tm-tag" style="background:${teamColor(h.champion)}"></span><b>${esc(teamName(h.champion))}</b></td><td class="l">${esc(teamName(h.runnerUp))}</td><td>${h.userFinish}</td>
-        <td class="l">${award(h, 'MVP')}</td><td class="l">${award(h, 'Defensive Player of the Year')}</td><td class="l">${award(h, 'Rookie of the Year')}</td></tr>`).join('')}
-      </tbody></table></div>` : '<div class="empty">Finish a season to start the history book.</div>'}</div>
-    <div class="panel flush"><div class="panel-head"><h3>Hall of Fame</h3><span class="faint small">Two or more awards, or a big career</span></div>
-      ${hof.length ? `<div class="table-wrap"><table class="data"><thead><tr><th class="l">Player</th><th class="l">Last team</th><th>Seasons</th><th class="l">Awards</th></tr></thead><tbody>${hof.map((p) => `<tr class="clickable" data-action="lg-player" data-pid="${p.pid}"><td class="l">${who(p)}</td><td class="l">${esc(teamName(p.lastTeam))}</td><td>${p.seasons}</td><td class="l small">${p.awards.map((a) => `S${a.season} ${esc(a.award)}`).join(', ')}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">No one has retired into the Hall of Fame yet.</div>'}</div>
   </div>`;
 }
-const award = (h, k) => (h.awards[k] ? `${esc(h.awards[k].name)} <span class="faint">${esc(teamAbbr(h.awards[k].team))}</span>` : '');
 
 // ---------------------------------------------------------------- free agents
 function freeAgents() {
@@ -401,23 +390,24 @@ function freeAgents() {
   const u = S.lgUi;
   const me = userTeam(lg);
   const full = me.roster.length >= ROSTER_MAX;
+  const drafting = !!lg.draft;
   const q = u.faQ.trim().toLowerCase();
   const list = lg.freeAgents
     .map((pid) => lgPlayer(pid))
-    .filter((p) => p && !p.retired && (!q || nameOf(p).toLowerCase().includes(q)) && !(lg.draft && lg.draft.pool.includes(p.pid)))
+    .filter((p) => p && (!q || nameOf(p).toLowerCase().includes(q)))
     .map((p) => {
       const r = ratingOf(p);
       const pos = u.faPos === 'all' ? r.best : u.faPos;
-      return { p, r, pos, ovr: r.ovr[pos], pot: potentials(p)[pos] };
+      return { p, pos, ovr: r.ovr[pos] };
     })
     .sort((a, b) => b.ovr - a.ovr)
     .slice(0, 60);
   return `<div class="panel flush">
-    <div class="panel-head"><div class="row"><input type="search" id="lg-fa-q" data-action="lg-fa-q" placeholder="Search free agents" value="${esc(u.faQ)}">
-      <select id="lg-fa-pos" data-action="lg-fa-pos"><option value="all">Best position</option>${FIELD_POS.concat(['K', 'P']).map((k) => `<option value="${k}"${u.faPos === k ? ' selected' : ''}>${POSITIONS[k].name}</option>`).join('')}</select></div>
-      <span class="faint small">${full ? `Your roster is full (${ROSTER_MAX}). Release someone to sign.` : `${me.roster.length} of ${ROSTER_MAX} roster spots used`}</span></div>
-    <div class="table-wrap"><table class="data"><thead><tr><th class="l">Player</th><th>Lv</th><th>Pos</th><th>OVR</th><th>POT</th><th></th></tr></thead><tbody>
-    ${list.map(({ p, pos, ovr, pot }) => `<tr><td class="l clickable" data-action="lg-player" data-pid="${p.pid}">${who(p)}</td><td>${p.level}</td><td>${pos}</td><td>${ovrBadge(ovr)}</td><td>${pot}</td><td><button class="btn small" data-action="lg-sign" data-pid="${p.pid}"${full ? ' disabled' : ''}>Sign</button></td></tr>`).join('')}
+    <div class="panel-head"><div class="row"><input type="search" id="lg-fa-q" data-action="lg-fa-q" placeholder="Search free agents" value="${esc(u.faQ)}" aria-label="Search free agents">
+      <select id="lg-fa-pos" data-action="lg-fa-pos" aria-label="Position"><option value="all">Best position</option>${FIELD_POS.concat(['K', 'P']).map((k) => `<option value="${k}"${u.faPos === k ? ' selected' : ''}>${POSITIONS[k].name}</option>`).join('')}</select></div>
+      <span class="faint small">${drafting ? 'Free agency opens after the draft.' : full ? `Your roster is full (${ROSTER_MAX}). Release someone to sign.` : `${me.roster.length} of ${ROSTER_MAX} roster spots used`}</span></div>
+    <div class="table-wrap"><table class="data"><thead><tr><th class="l">Player</th><th>Pos</th><th>OVR</th><th></th></tr></thead><tbody>
+    ${list.map(({ p, pos, ovr }) => `<tr><td class="l clickable" data-action="lg-player" data-pid="${p.pid}">${who(p)}</td><td>${pos}</td><td>${ovrBadge(ovr)}</td><td><button class="btn small" data-action="lg-sign" data-pid="${p.pid}"${full || drafting ? ' disabled' : ''}>Sign</button></td></tr>`).join('')}
     </tbody></table></div></div>`;
 }
 
@@ -426,13 +416,13 @@ function saveView() {
   const u = S.lgUi;
   return `<div class="grid-2">
     <div class="panel stack"><h3>Save code</h3>
-      <p class="small muted" style="margin:0">The league saves in this browser after every action. To move it, copy the save code and paste it into "Load a league" on another device.</p>
+      <p class="small muted" style="margin:0">The season saves in this browser after every action. To move it, copy the save code and paste it into "Load a season" on another device.</p>
       <div class="row"><button class="btn" data-action="lg-copy">Copy save code</button><button class="btn ghost" data-action="lg-show-code">Show code</button></div>
-      ${u.saveCode ? `<textarea id="lg-save-code" readonly>${esc(u.saveCode)}</textarea>` : ''}
+      ${u.saveCode ? `<textarea id="lg-save-code" readonly aria-label="Save code">${esc(u.saveCode)}</textarea>` : ''}
     </div>
     <div class="panel stack"><h3>Start over</h3>
-      <p class="small muted" style="margin:0">Delete this league from this browser. Copy the save code first if you want to keep it.</p>
-      <div><button class="btn danger" data-action="lg-delete">${u.confirmDelete ? 'Click again to delete the league' : 'Delete league'}</button></div>
+      <p class="small muted" style="margin:0">Delete this season from this browser and start a new draft. Copy the save code first if you want to keep it.</p>
+      <div><button class="btn danger" data-action="lg-delete">${u.confirmDelete ? 'Click again to delete the season' : 'Delete season'}</button></div>
     </div>
   </div>`;
 }
@@ -486,24 +476,22 @@ function playerModal(m) {
   if (!p) return '';
   const me = userTeam(lg);
   const mine = p.team === me.id;
-  const isFa = !p.team && !p.retired && !(lg.draft && lg.draft.pool.includes(p.pid));
+  const isFa = !p.team && !lg.draft;
+  const onClock = lg.draft && currentPick(lg)?.team === lg.userTeam && lg.draft.pool.includes(p.pid);
   const slot = mine ? Object.entries(me.lineup).find(([, pid]) => pid === p.pid)?.[0] : null;
   const pos = slot ? SLOT_POS[slot] : null;
-  const sp = DEX.get(p.species);
-  const next = p.level < 100 ? expForLevel(sp.growth, p.level + 1) : null;
-  const lineage = p.lineage.map((id) => DEX.get(id).name).join(' → ');
-  const seasons = Object.keys(p.stats).sort();
   const actions = [
-    mine ? `<button class="btn small danger" data-action="lg-release" data-pid="${p.pid}">${m.confirm ? 'Click again to release' : 'Release'}</button>` : '',
+    onClock ? `<button class="btn small primary" data-action="lg-draft" data-pid="${p.pid}">Draft</button>` : '',
+    mine && !lg.draft ? `<button class="btn small danger" data-action="lg-release" data-pid="${p.pid}">${m.confirm ? 'Click again to release' : 'Release'}</button>` : '',
     isFa ? `<button class="btn small primary" data-action="lg-sign" data-pid="${p.pid}">Sign</button>` : '',
   ].join('');
-  const extra = `<div class="small muted">${p.retired ? `Retired after season ${p.retiredSeason}${p.hallOfFame ? ' · Hall of Fame' : ''}` : `${esc(teamName(p.team))}${slot ? ` · starts at ${slot}` : ''}`}${p.injury ? ` · <span class="pill warn">Fainted, out ${p.injury} wk</span>` : ''}</div>
-    <div class="small muted">${p.draft ? `Drafted season ${p.draft.season}, round ${p.draft.round} (${p.draft.kind}) · ` : ''}${p.seasons} season${p.seasons === 1 ? '' : 's'} played${lineage.includes('→') ? ` · ${esc(lineage)}` : ''}</div>
-    ${next ? `<div class="small muted">Experience ${p.exp.toLocaleString()} · next level at ${next.toLocaleString()} (${esc(sp.growth.replace(/-/g, ' '))} growth)</div>` : ''}
-    ${p.awards.length ? `<div class="row">${p.awards.map((a) => `<span class="pill flag">S${a.season} ${esc(a.award)}</span>`).join('')}</div>` : ''}
-    ${seasons.length ? `<div class="table-wrap"><table class="data"><thead><tr><th class="l">Season</th><th>GP</th><th>Pass</th><th>TD</th><th>Rush</th><th>Rec</th><th>Tkl</th><th>Sck</th><th>Int</th></tr></thead><tbody>${seasons.map((k) => {
+  const lines = [['reg', 'Regular season'], ['post', 'Playoffs']].filter(([k]) => p.stats[k]);
+  const where = p.team ? teamName(p.team) : lg.draft ? 'In the draft pool' : 'Free agent';
+  const extra = `<div class="small muted">${esc(where)}${slot ? ` · starts at ${slot}` : ''}${p.draft ? ` · drafted round ${p.draft.round}, pick ${p.draft.pick}` : ''}${p.injury ? ` · <span class="pill warn">Fainted, out ${p.injury} wk</span>` : ''}</div>
+    ${p.awards.length ? `<div class="row">${p.awards.map((a) => `<span class="pill flag">${esc(a)}</span>`).join('')}</div>` : ''}
+    ${lines.length ? `<div class="table-wrap"><table class="data"><thead><tr><th class="l"></th><th>GP</th><th>Pass</th><th>TD</th><th>Rush</th><th>Rec</th><th>Tkl</th><th>Sck</th><th>Int</th></tr></thead><tbody>${lines.map(([k, label]) => {
       const s = p.stats[k];
-      return `<tr><td class="l">${k.endsWith('p') ? `S${k.slice(0, -1)} playoffs` : `S${k}`} <span class="faint">${esc(teamAbbr(s.team))}</span></td><td>${s.gp}</td><td>${s.pass.yds ?? 0}</td><td>${(s.pass.td ?? 0) + (s.rush.td ?? 0) + (s.rec.td ?? 0)}</td><td>${s.rush.yds ?? 0}</td><td>${s.rec.yds ?? 0}</td><td>${s.def.tkl ?? 0}</td><td>${s.def.sck ?? 0}</td><td>${s.def.int ?? 0}</td></tr>`;
+      return `<tr><td class="l">${label}</td><td>${s.gp}</td><td>${s.pass.yds ?? 0}</td><td>${(s.pass.td ?? 0) + (s.rush.td ?? 0) + (s.rec.td ?? 0)}</td><td>${s.rush.yds ?? 0}</td><td>${s.rec.yds ?? 0}</td><td>${s.def.tkl ?? 0}</td><td>${s.def.sck ?? 0}</td><td>${s.def.int ?? 0}</td></tr>`;
     }).join('')}</tbody></table></div>` : ''}`;
   return `<div class="modal-back" data-action="modal-close"><div class="modal" data-stop="1" role="dialog" aria-label="Player card" style="width:min(640px,100%)">
     <div class="spread"><span class="eyebrow">Player card</span><button class="btn small" data-action="modal-close">Close</button></div>
@@ -515,7 +503,7 @@ function playerModal(m) {
 export function handleLeague(action, el) {
   const lg = S.lg;
   const u = S.lgUi;
-  const done = () => { if (!saveLeague()) toast('This browser would not save the league. Copy a save code from the Save tab.'); return true; };
+  const done = () => { if (!saveLeague()) toast('This browser would not save the season. Copy a save code from the Save tab.'); return true; };
   try {
     switch (action) {
       case 'lg-tab': S.lgTab = el.dataset.tab; return true;
@@ -534,13 +522,18 @@ export function handleLeague(action, el) {
         S.lg = data;
         u.loadCode = '';
         S.lgTab = 'home';
-        toast('League loaded.');
+        toast('Season loaded.');
         return done();
       }
-      case 'lg-draft': draftPlayer(lg, el.dataset.pid); if (lg.draft) simToUserPick(lg); if (!lg.draft) S.lgTab = 'home'; return done();
+      case 'lg-draft': {
+        draftPlayer(lg, el.dataset.pid);
+        S.modal = null;
+        if (lg.draft) simToUserPick(lg);
+        if (!lg.draft) S.lgTab = 'home';
+        return done();
+      }
       case 'lg-sim-pick': simToUserPick(lg); return done();
       case 'lg-auto-draft': autoDraftRest(lg); S.lgTab = 'home'; return done();
-      case 'lg-ai-pick': aiPick(lg); return done();
       case 'lg-draft-q': u.draftQ = el.value; return true;
       case 'lg-draft-pos': u.draftPos = el.value; return true;
       case 'lg-start': startSeason(lg); return done();
@@ -549,14 +542,22 @@ export function handleLeague(action, el) {
         playWeek(lg);
         const mine = Object.values(lg.games).slice(before).find((g) => g.home === lg.userTeam || g.away === lg.userTeam);
         if (mine) {
-          const won = (mine.home === lg.userTeam ? mine.score[0] - mine.score[1] : mine.score[1] - mine.score[0]);
-          toast(`${won > 0 ? 'Win' : won < 0 ? 'Loss' : 'Tie'}: ${teamAbbr(mine.home)} ${mine.score[0]}, ${teamAbbr(mine.away)} ${mine.score[1]}.`);
+          const margin = mine.home === lg.userTeam ? mine.score[0] - mine.score[1] : mine.score[1] - mine.score[0];
+          toast(`${margin > 0 ? 'Win' : margin < 0 ? 'Loss' : 'Tie'}: ${teamAbbr(mine.home)} ${mine.score[0]}, ${teamAbbr(mine.away)} ${mine.score[1]}.`);
         }
         return done();
       }
       case 'lg-to-playoffs': simToPlayoffs(lg); return done();
       case 'lg-sim-season': simSeason(lg); return done();
-      case 'lg-offseason': advanceOffseason(lg); S.lgTab = 'draft'; simToUserPick(lg); return done();
+      case 'lg-new-draft': {
+        if (!u.confirmNew) { u.confirmNew = true; return true; }
+        S.lg = null;
+        u.confirmNew = false;
+        u.saveCode = '';
+        S.lgTab = 'home';
+        saveLeague();
+        return true;
+      }
       case 'lg-auto': {
         const me = userTeam(lg);
         me.autoLineup = el.checked;
@@ -577,7 +578,6 @@ export function handleLeague(action, el) {
       case 'lg-sign': signFreeAgent(lg, el.dataset.pid); S.modal = null; toast(`Signed ${nameOf(lgPlayer(el.dataset.pid))}.`); return done();
       case 'lg-fa-q': u.faQ = el.value; return true;
       case 'lg-fa-pos': u.faPos = el.value; return true;
-      case 'lg-leader-season': u.leaderSeason = Number(el.value); return true;
       case 'lg-show-code': u.saveCode = JSON.stringify(lg); return true;
       case 'lg-copy': {
         const code = JSON.stringify(lg);
@@ -606,4 +606,3 @@ export function handleLeaguePlay(action, el) {
   if (action === 'show-play' && S.modal?.kind === 'game') { S.modal.cur = Number(el.dataset.i); return true; }
   return false;
 }
-

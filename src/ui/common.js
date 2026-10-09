@@ -1,6 +1,6 @@
 // Shared view pieces: badges, rating bars, scoreboard, field, play-by-play, box score, player card.
 import { TYPES, ABILITIES } from '../data/pokedex.js';
-import { DEX, ATTRS, POSITIONS, POS_KEYS, STAT_LABELS, SHAPE_LABELS, SHAPE_HANDS, SHAPE_LEGS, EVOLVES_TO, rate, realStats, potentials } from '../engine/ratings.js';
+import { DEX, ATTRS, POSITIONS, POS_KEYS, STAT_LABELS, SHAPE_LABELS, SHAPE_HANDS, SHAPE_LEGS, rate } from '../engine/ratings.js';
 import { PERKS, WEATHER } from '../engine/perks.js';
 
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -14,11 +14,25 @@ export const typeLabel = (i) => TYPES[i][0].toUpperCase() + TYPES[i].slice(1);
 export const typeChip = (i) => `<span class="chip" style="background:${TYPE_COLORS[TYPES[i]]};color:#fff">${typeLabel(i)}</span>`;
 export const typeChips = (species) => `<span class="chips">${DEX.get(species).types.map(typeChip).join('')}</span>`;
 
-export function jersey(species, num, size = '') {
+// Artwork loads from PokeAPI's sprite repository when the page opens; this repo stores no images.
+// If an image cannot load, the badge falls back to a jersey in the Pokémon's type colors.
+const SPRITE_BASE = 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon';
+export const spriteUrl = (id) => `${SPRITE_BASE}/${id}.png`;
+export const artUrl = (id) => `${SPRITE_BASE}/other/official-artwork/${id}.png`;
+
+function typeColors(species) {
   const t = DEX.get(species).types;
-  const c1 = TYPE_COLORS[TYPES[t[0]]];
-  const c2 = TYPE_COLORS[TYPES[t[1] ?? t[0]]];
-  return `<span class="jersey ${size}" style="--j1:${c1};--j2:${c2}" aria-hidden="true">${esc(num)}</span>`;
+  return `--j1:${TYPE_COLORS[TYPES[t[0]]]};--j2:${TYPE_COLORS[TYPES[t[1] ?? t[0]]]}`;
+}
+
+// Small sprite with the jersey number in the corner.
+export function mon(species, num = '', size = '') {
+  return `<span class="mon ${size}" style="${typeColors(species)}" aria-hidden="true"><img src="${spriteUrl(species)}" alt="" loading="lazy" decoding="async" data-sprite="1"><span class="num">${esc(num)}</span></span>`;
+}
+
+// Large official artwork for the player card.
+export function bigArt(species, num = '') {
+  return `<span class="art" style="${typeColors(species)}" aria-hidden="true"><img src="${artUrl(species)}" alt="" decoding="async" data-sprite="1"><span class="num">${esc(num)}</span></span>`;
 }
 
 export function ovrTier(v) {
@@ -102,7 +116,9 @@ export function ballSpots(result) {
       else if (e.kind === 'kickoff') end = { poss: e.poss, yl: e.yl };
       else end = { poss: e.poss, yl: Math.max(0, Math.min(100, start + (e.yards ?? 0))) };
     }
-    spots.push({ poss: e.poss, start, end, down: e.down, dist: e.dist, kind: e.kind });
+    const actor = e.carrier ?? e.target;
+    const line = actor ? result.players.find((p) => p.pid === actor && p.side === e.poss) : null;
+    spots.push({ poss: e.poss, start, end, down: e.down, dist: e.dist, kind: e.kind, species: line?.species ?? null });
   }
   return spots;
 }
@@ -132,6 +148,7 @@ export function fieldSvg(result, spot) {
     if (Math.abs(endX - los) > 2) {
       marks += `<path d="M ${los} 130 Q ${(los + endX) / 2} ${spot.kind === 'pass' ? 60 : 118} ${endX} 130" fill="none" stroke="${color}" stroke-width="5" stroke-linecap="round" opacity="0.95"/>`;
     }
+    if (spot.species) marks += `<image href="${spriteUrl(spot.species)}" x="${endX - 48}" y="18" width="96" height="96" style="image-rendering:pixelated"/>`;
     marks += `<g class="ball" transform="translate(${endX} 130)"><ellipse rx="15" ry="10" fill="#7a4a24" stroke="#fff" stroke-width="2.5"/><line x1="-6" y1="0" x2="6" y2="0" stroke="#fff" stroke-width="2"/></g>`;
   }
   const ez = (side) => {
@@ -234,49 +251,32 @@ export function playerCard(p, { contextPos = null, actions = '', extra = '' } = 
   const sp = DEX.get(p.species);
   const r = rate(p.species, p.level, p.ivs, p.nature, p.abilitySlot);
   const pos = contextPos ?? r.best;
-  const pots = potentials(p);
   const base = sp.base;
-  const real = realStats(p.species, p.level, p.ivs, p.nature, r.ability);
-  const realVals = [real.hp, real.atk, real.def, real.spa, real.spd, real.spe];
-  const posBars = POS_KEYS.map((k) => ({ label: POSITIONS[k].name, value: r.ovr[k], hot: k === pos, title: `Potential ${pots[k]}` }));
+  const posBars = POS_KEYS.map((k) => ({ label: POSITIONS[k].name, value: r.ovr[k], hot: k === pos }));
   const keyAttrs = new Set(Object.keys(POSITIONS[pos].w));
   const attrBars = ATTRS.map((a) => ({ label: a.name, value: r.attrs[a.key], hot: keyAttrs.has(a.key), title: `From ${a.from}` }));
   return `<div class="stack">
     <div class="card-head">
-      ${jersey(p.species, p.num || sp.id, 'lg')}
+      ${bigArt(p.species, p.num || '')}
       <div style="min-width:0">
         <div class="eyebrow">#${String(sp.id).padStart(4, '0')} · ${esc(sp.genus)} · Gen ${sp.gen}</div>
         <h2>${esc(sp.name)}</h2>
-        <div class="row" style="gap:6px;margin-top:4px">${typeChips(p.species)}<span class="pill">Lv ${p.level}</span>${sp.leg ? '<span class="pill flag">Legendary</span>' : ''}${sp.myth ? '<span class="pill flag">Mythical</span>' : ''}</div>
+        <div class="row" style="gap:6px;margin-top:4px">${typeChips(p.species)}${sp.leg ? '<span class="pill flag">Legendary</span>' : ''}${sp.myth ? '<span class="pill flag">Mythical</span>' : ''}</div>
       </div>
-      <div class="big-ovr"><div class="eyebrow">${pos} OVR</div><div class="v">${r.ovr[pos]}</div><div class="faint small">POT ${pots[pos]}</div></div>
+      <div class="big-ovr"><div class="eyebrow">${pos} OVR</div><div class="v">${r.ovr[pos]}</div></div>
     </div>
     ${actions ? `<div class="row">${actions}</div>` : ''}
     ${extra}
     <div class="card-section"><div class="eyebrow" style="margin-bottom:6px">Ability</div>
       <b>${esc(abilityTitle(r.ability))}</b> <span class="muted">${esc(perkText(r.ability))}</span></div>
-    <div class="card-section"><div class="spread" style="margin-bottom:8px"><span class="eyebrow">Overall by position</span><span class="faint small">Hover for potential</span></div>${barRows(posBars)}</div>
-    <div class="card-section"><div class="spread" style="margin-bottom:8px"><span class="eyebrow">Football ratings at Lv ${p.level}</span><span class="faint small">Highlighted = used at ${pos}</span></div>${barRows(attrBars)}</div>
-    <div class="card-section"><div class="eyebrow" style="margin-bottom:8px">Real stats (base → at Lv ${p.level})</div>
-      <div class="statgrid">${STAT_LABELS.map((l, i) => `<div><div class="k">${l}</div><div class="v">${base[i]}</div><div class="faint small num">${realVals[i]}</div></div>`).join('')}</div>
-      <div class="faint small" style="margin-top:6px">Base stat total ${base.reduce((a, b) => a + b, 0)}. IVs ${p.ivs.join('/')}.</div></div>
+    <div class="card-section"><div class="eyebrow" style="margin-bottom:8px">Overall by position</div>${barRows(posBars)}</div>
+    <div class="card-section"><div class="spread" style="margin-bottom:8px"><span class="eyebrow">Football ratings</span><span class="faint small">Highlighted = used at ${pos}</span></div>${barRows(attrBars)}</div>
+    <div class="card-section"><div class="eyebrow" style="margin-bottom:8px">Base stats</div>
+      <div class="statgrid">${STAT_LABELS.map((l, i) => `<div><div class="k">${l}</div><div class="v">${base[i]}</div></div>`).join('')}</div>
+      <div class="faint small" style="margin-top:6px">Total ${base.reduce((a, b) => a + b, 0)}</div></div>
     <div class="card-section"><div class="eyebrow" style="margin-bottom:6px">Body</div>
       <div class="small">${(sp.h / 10).toFixed(1)} m · ${(sp.w / 10).toFixed(1)} kg · ${esc(SHAPE_LABELS[sp.shape] ?? sp.shape)} body: hands ${Math.round(SHAPE_HANDS[sp.shape] * 100)}%, kicking legs ${Math.round(SHAPE_LEGS[sp.shape] * 100)}%</div></div>
-    ${evolutionRow(sp)}
   </div>`;
-}
-
-function evolutionRow(sp) {
-  let root = sp;
-  while (root.from) root = DEX.get(root.from);
-  const parts = [];
-  const walk = (s, depth) => {
-    parts.push(`${depth ? `<span class="arrow">→ Lv ${s.evoLvl}</span>` : ''}<span>${s.id === sp.id ? `<b>${esc(s.name)}</b>` : esc(s.name)}</span>`);
-    for (const k of EVOLVES_TO.get(s.id) ?? []) walk(DEX.get(k), depth + 1);
-  };
-  walk(root, 0);
-  if (parts.length === 1) return '<div class="card-section"><div class="eyebrow" style="margin-bottom:6px">Evolution</div><div class="small muted">Does not evolve.</div></div>';
-  return `<div class="card-section"><div class="eyebrow" style="margin-bottom:6px">Evolution line</div><div class="evo">${parts.join('')}</div></div>`;
 }
 
 // ---------------------------------------------------------------- margin histogram

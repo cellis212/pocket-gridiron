@@ -1,19 +1,15 @@
 // Turns a Pokémon's real stats into football ratings.
 // Step 1: real in-game stats at the player's level (base stat, IV, nature, the main-series formula).
 // Step 2: football attributes, each a fixed blend of those stats plus body size and body shape.
-// Step 3: a 1-99 scale, where 99 is the 99.5th percentile of every Pokémon at level 100 with perfect IVs.
-import { POKEDEX, TYPES, NATURES, ABILITIES } from '../data/pokedex.js';
+// Step 3: a 1-99 scale, where 99 is the 99.5th percentile of every Pokémon at full strength.
+// The app plays everyone at full strength (level 100, perfect IVs, neutral nature); the level
+// argument stays so the stat formula is the real one and the tests can check it.
+import { POKEDEX, NATURES } from '../data/pokedex.js';
 import { clamp } from './rng.js';
 
 export const STAT_KEYS = ['hp', 'atk', 'def', 'spa', 'spd', 'spe'];
 export const STAT_LABELS = ['HP', 'Atk', 'Def', 'SpA', 'SpD', 'Spe'];
 export const DEX = new Map(POKEDEX.map((p) => [p.id, p]));
-export const EVOLVES_TO = new Map();
-for (const p of POKEDEX) {
-  if (!p.from) continue;
-  if (!EVOLVES_TO.has(p.from)) EVOLVES_TO.set(p.from, []);
-  EVOLVES_TO.get(p.from).push(p.id);
-}
 export const NEUTRAL_NATURE = NATURES.findIndex((n) => n.name === 'hardy');
 
 export const ATTRS = [
@@ -86,7 +82,6 @@ export function abilityOf(speciesId, slot) {
   if (slot === 2) return sp.hidden || sp.abil[0] || '';
   return sp.abil[slot] || sp.abil[0] || sp.hidden || '';
 }
-export const abilityName = (slug) => ABILITIES[slug] ?? slug;
 
 export function realStats(speciesId, level, ivs, natureIdx, ability) {
   const sp = DEX.get(speciesId);
@@ -214,70 +209,4 @@ export function rate(speciesId, level, ivs, natureIdx, abilitySlot) {
   if (cache.size > 50000) cache.clear();
   cache.set(key, out);
   return out;
-}
-
-// Every species this one can still become, including itself.
-export function evolutionLine(speciesId) {
-  const out = [speciesId];
-  for (const child of EVOLVES_TO.get(speciesId) ?? []) out.push(...evolutionLine(child));
-  return out;
-}
-export function finalForms(speciesId) {
-  const kids = EVOLVES_TO.get(speciesId) ?? [];
-  if (!kids.length) return [speciesId];
-  return kids.flatMap(finalForms);
-}
-
-// Potential: the best overall this individual can reach at level 100 in any final form.
-// It does not depend on the current level, so it is cached per individual.
-const potCache = new Map();
-export function potentials(player) {
-  const key = `${player.species}|${player.ivs.join(',')}|${player.nature}|${player.abilitySlot}`;
-  let hit = potCache.get(key);
-  if (hit) return hit;
-  hit = {};
-  for (const form of finalForms(player.species)) {
-    const r = rate(form, 100, player.ivs, player.nature, player.abilitySlot);
-    for (const pos of POS_KEYS) hit[pos] = Math.max(hit[pos] ?? 0, r.ovr[pos]);
-  }
-  hit.best = Math.max(...FIELD_POS.map((pos) => hit[pos]));
-  if (potCache.size > 20000) potCache.clear();
-  potCache.set(key, hit);
-  return hit;
-}
-export function potential(player, pos) {
-  const pots = potentials(player);
-  return pos ? pots[pos] : pots.best;
-}
-
-// ---- Experience and levels (the main-series growth-rate curves) ----
-export function expForLevel(growth, n) {
-  if (n <= 1) return 0;
-  const n3 = n ** 3;
-  switch (growth) {
-    case 'fast': return Math.floor((4 * n3) / 5);
-    case 'medium': return n3;
-    case 'slow': return Math.floor((5 * n3) / 4);
-    case 'medium-slow': return Math.max(0, Math.floor((6 * n3) / 5 - 15 * n * n + 100 * n - 140));
-    case 'slow-then-very-fast':
-      if (n <= 50) return Math.floor((n3 * (100 - n)) / 50);
-      if (n <= 68) return Math.floor((n3 * (150 - n)) / 100);
-      if (n <= 98) return Math.floor((n3 * Math.floor((1911 - 10 * n) / 3)) / 500);
-      return Math.floor((n3 * (160 - n)) / 100);
-    case 'fast-then-very-slow':
-      if (n <= 15) return Math.floor((n3 * (Math.floor((n + 1) / 3) + 24)) / 50);
-      if (n <= 36) return Math.floor((n3 * (n + 14)) / 50);
-      return Math.floor((n3 * (Math.floor(n / 2) + 32)) / 50);
-    default: return n3;
-  }
-}
-export function levelForExp(growth, exp) {
-  let lvl = 1;
-  while (lvl < 100 && expForLevel(growth, lvl + 1) <= exp) lvl++;
-  return lvl;
-}
-
-export const typeName = (i) => TYPES[i];
-export function speciesTypes(speciesId) {
-  return DEX.get(speciesId).types;
 }

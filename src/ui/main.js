@@ -5,7 +5,7 @@ import { renderExhibition, handleExhibition } from './exhibition.js';
 import { renderScout, handleScout } from './scout.js';
 import { renderLeague, renderLeagueModal, handleLeague, handleLeaguePlay } from './leagueview.js';
 
-const NAV = [['exhibition', 'Exhibition'], ['scout', 'Scouting'], ['league', 'League']];
+const NAV = [['exhibition', 'Exhibition'], ['league', 'Season'], ['scout', 'Scouting']];
 const root = document.getElementById('app');
 
 function shell() {
@@ -15,7 +15,7 @@ function shell() {
       <nav class="nav" aria-label="Sections">${NAV.map(([k, l]) => `<button data-action="nav" data-tab="${k}"${S.tab === k ? ' aria-current="page"' : ''}>${l}</button>`).join('')}</nav>
     </div></header>
     <main id="main">${body}</main>
-    <footer class="footer">Unofficial fan project. Not affiliated with Nintendo, Game Freak, Creatures or The Pokémon Company. Pokémon data from PokeAPI.</footer>
+    <footer class="footer">Free, unofficial fan project. Not affiliated with Nintendo, Game Freak, Creatures or The Pokémon Company. Pokémon data and artwork load from PokeAPI. Pokémon and its artwork are © their owners.</footer>
     ${renderLeagueModal()}
     ${S.toast ? `<div class="toast" role="status">${esc(S.toast)}</div>` : ''}`;
 }
@@ -80,6 +80,12 @@ root.addEventListener('input', (ev) => {
 document.addEventListener('keydown', (ev) => {
   if (ev.key === 'Escape' && S.modal) { S.modal = null; render(); }
 });
+
+// A sprite that cannot load turns its badge into a type-colored jersey.
+document.addEventListener('error', (ev) => {
+  const img = ev.target;
+  if (img?.dataset?.sprite) img.closest('.mon, .art')?.classList.add('noimg');
+}, true);
 
 // Hover tooltips for chart marks.
 const tip = document.createElement('div');

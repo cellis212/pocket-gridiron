@@ -11,7 +11,7 @@ const pools = ['gen1', 'gen4', 'standard', 'type-water', 'gen9', 'type-steel'].m
 for (let i = 0; i < 6; i++) pools.push(rng.shuffle(POKEDEX.map((p) => p.id)).slice(0, 100));
 const t = { games: 0, pts: 0, plays: 0, car: 0, rushYds: 0, att: 0, cmp: 0, passYds: 0, sacks: 0, ints: 0, to: 0, fga: 0, fgm: 0, third: [0, 0] };
 for (const [pi, pool] of pools.entries()) {
-  for (const lv of [100, 50]) {
+  for (const lv of [100]) {
     const mk = (id) => {
       const players = pool.map((s) => exhibitionPlayer(s, lv, `${id}-${s}`));
       return { id, name: id, abbr: id, color: '#333', players, lineup: autoLineup(players) };

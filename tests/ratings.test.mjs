@@ -1,9 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { POKEDEX, TYPES } from '../src/data/pokedex.js';
-import {
-  DEX, realStats, rate, expForLevel, levelForExp, NEUTRAL_NATURE, ATTR_KEYS, POS_KEYS, potential, SHAPE_HANDS,
-} from '../src/engine/ratings.js';
+import { DEX, realStats, rate, NEUTRAL_NATURE, ATTR_KEYS, SHAPE_HANDS } from '../src/engine/ratings.js';
 import { typeFactor, TYPE } from '../src/engine/perks.js';
 import { exhibitionPlayer, autoLineup, SLOTS, themePool, THEMES } from '../src/engine/lineup.js';
 
@@ -40,12 +38,10 @@ test('Huge Power doubles Attack', () => {
   assert.equal(hugePower.atk, thickFat.atk * 2);
 });
 
-test('ratings stay on the 1-99 scale and rise with level', () => {
+test('ratings stay on the 1-99 scale', () => {
   for (const p of POKEDEX) {
     const r = rate(p.id, 100, PERFECT, NEUTRAL_NATURE, 0);
     for (const k of ATTR_KEYS) assert.ok(r.attrs[k] >= 1 && r.attrs[k] <= 99, `${p.name} ${k}`);
-    const low = rate(p.id, 30, PERFECT, NEUTRAL_NATURE, 0);
-    for (const pos of POS_KEYS) assert.ok(low.ovr[pos] <= r.ovr[pos], `${p.name} ${pos}`);
   }
 });
 
@@ -54,25 +50,6 @@ test('body shape matters: fins cannot throw like hands', () => {
   const machamp = rate(68, 100, PERFECT, NEUTRAL_NATURE, 0);
   const magikarp = rate(129, 100, PERFECT, NEUTRAL_NATURE, 0);
   assert.ok(machamp.attrs.THA > magikarp.attrs.THA);
-});
-
-test('potential looks ahead to the final evolution', () => {
-  const karp = { species: 129, level: 10, ivs: PERFECT, nature: NEUTRAL_NATURE, abilitySlot: 0 };
-  const gyarados = rate(130, 100, PERFECT, NEUTRAL_NATURE, 0);
-  assert.equal(potential(karp, 'DL'), gyarados.ovr.DL);
-  assert.ok(potential(karp) > rate(129, 100, PERFECT, NEUTRAL_NATURE, 0).ovr.CB);
-});
-
-test('experience curves match the games at level 100', () => {
-  assert.equal(expForLevel('fast', 100), 800000);
-  assert.equal(expForLevel('medium', 100), 1000000);
-  assert.equal(expForLevel('medium-slow', 100), 1059860);
-  assert.equal(expForLevel('slow', 100), 1250000);
-  assert.equal(expForLevel('slow-then-very-fast', 100), 600000);
-  assert.equal(expForLevel('fast-then-very-slow', 100), 1640000);
-  for (const g of ['fast', 'medium', 'medium-slow', 'slow', 'slow-then-very-fast', 'fast-then-very-slow']) {
-    for (const lvl of [2, 10, 37, 50, 69, 99]) assert.equal(levelForExp(g, expForLevel(g, lvl)), lvl, `${g} ${lvl}`);
-  }
 });
 
 test('type chart and type abilities', () => {

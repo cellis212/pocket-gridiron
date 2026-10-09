@@ -151,15 +151,23 @@ textarea { width: 100%; min-height: 90px; font: 12px/1.4 ui-monospace, Menlo, mo
 .pill.good { background: color-mix(in srgb, var(--good) 16%, transparent); color: var(--good); }
 .pill.flag { background: var(--flag); color: var(--flag-ink); }
 
-/* Jersey badge: the player's number on a two-tone jersey in his type colors. */
-.jersey {
-  flex: none; width: 34px; height: 34px; border-radius: 7px 7px 10px 10px; display: grid; place-items: center;
-  font: 15px/1 var(--font-display); color: #fff; text-shadow: 0 1px 0 rgb(0 0 0 / 0.35);
-  background: linear-gradient(135deg, var(--j1) 0 55%, var(--j2) 55% 100%);
-  box-shadow: inset 0 0 0 2px rgb(255 255 255 / 0.25);
-}
-.jersey.sm { width: 26px; height: 26px; font-size: 12px; border-radius: 5px 5px 8px 8px; }
-.jersey.lg { width: 64px; height: 64px; font-size: 28px; border-radius: 12px 12px 18px 18px; }
+/* Sprite badge: the Pokémon on a type-tinted tile with its jersey number in the corner.
+   With no image, the tile turns into a two-tone jersey in its type colors. */
+.mon { position: relative; flex: none; width: 44px; height: 44px; border-radius: 8px; background: color-mix(in srgb, var(--j1) 22%, var(--surface-2)); }
+.mon img { display: block; width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; transform: scale(1.25); }
+.mon .num { position: absolute; right: -4px; bottom: -4px; min-width: 18px; height: 16px; padding: 0 3px; border-radius: 4px; font: 11px/16px var(--font-display); text-align: center; color: #fff; background: linear-gradient(135deg, var(--j1) 0 55%, var(--j2) 55% 100%); box-shadow: 0 0 0 2px var(--surface); }
+.mon .num:empty { display: none; }
+.mon.xs { width: 32px; height: 32px; border-radius: 6px; }
+.mon.noimg { background: linear-gradient(135deg, var(--j1) 0 55%, var(--j2) 55% 100%); }
+.mon.noimg img { display: none; }
+.mon.noimg .num { inset: 0; width: auto; height: auto; display: grid; place-items: center; background: none; box-shadow: none; font-size: 14px; line-height: 1; }
+.art { position: relative; flex: none; width: 112px; height: 112px; border-radius: 14px; background: radial-gradient(circle at 50% 60%, color-mix(in srgb, var(--j1) 35%, transparent), color-mix(in srgb, var(--j2) 12%, var(--surface-2)) 70%); }
+.art img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.art .num { position: absolute; right: -6px; bottom: -6px; min-width: 30px; height: 26px; padding: 0 5px; border-radius: 6px; font: 17px/26px var(--font-display); text-align: center; color: #fff; background: linear-gradient(135deg, var(--j1) 0 55%, var(--j2) 55% 100%); box-shadow: 0 0 0 3px var(--surface); }
+.art .num:empty { display: none; }
+.art.noimg { background: linear-gradient(135deg, var(--j1) 0 55%, var(--j2) 55% 100%); }
+.art.noimg img { display: none; }
+
 .who { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .who-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .who-sub { font-size: 12px; color: var(--ink-3); white-space: nowrap; }
@@ -297,14 +305,14 @@ tr.clickable { cursor: pointer; }
 const S = {
   tab: 'exhibition',
   ex: {
-    home: { theme: 'gen1', level: 100, overrides: {}, style: 'balanced', aggr: 'normal' },
-    away: { theme: 'gen9', level: 100, overrides: {}, style: 'balanced', aggr: 'normal' },
+    home: { theme: 'gen1', overrides: {}, style: 'balanced', aggr: 'normal' },
+    away: { theme: 'gen9', overrides: {}, style: 'balanced', aggr: 'normal' },
     result: null, view: 'plays', cur: null, watchI: null, multi: null, editing: null, pickQ: '', open: { home: false, away: false },
   },
-  scout: { q: '', type: 'all', gen: 'all', pos: 'best', level: 100, legend: 'all', sort: 'ovr', dir: -1, page: 0, sel: 445 },
+  scout: { q: '', type: 'all', gen: 'all', pos: 'best', legend: 'all', sort: 'ovr', dir: -1, page: 0, sel: 445 },
   lg: null,
   lgTab: 'home',
-  lgUi: { draftPos: 'all', draftQ: '', faPos: 'all', faQ: '', confirmDelete: false, saveCode: '', loadCode: '' },
+  lgUi: { draftPos: 'all', draftQ: '', faPos: 'all', faQ: '', confirmDelete: false, confirmNew: false, saveCode: '', loadCode: '' },
   modal: null,
   toast: null,
 };
@@ -321,7 +329,7 @@ function toast(msg) {
   toastTimer = setTimeout(() => { S.toast = null; rerender(); }, 2800);
 }
 
-const LEAGUE_KEY = 'pocket-gridiron:league:v1';
+const LEAGUE_KEY = 'pocket-gridiron:season:v2';
 const UI_KEY = 'pocket-gridiron:ui:v1';
 
 function saveLeague() {
@@ -1454,18 +1462,14 @@ const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
 // Turns a Pokémon's real stats into football ratings.
 // Step 1: real in-game stats at the player's level (base stat, IV, nature, the main-series formula).
 // Step 2: football attributes, each a fixed blend of those stats plus body size and body shape.
-// Step 3: a 1-99 scale, where 99 is the 99.5th percentile of every Pokémon at level 100 with perfect IVs.
+// Step 3: a 1-99 scale, where 99 is the 99.5th percentile of every Pokémon at full strength.
+// The app plays everyone at full strength (level 100, perfect IVs, neutral nature); the level
+// argument stays so the stat formula is the real one and the tests can check it.
 
 
 const STAT_KEYS = ['hp', 'atk', 'def', 'spa', 'spd', 'spe'];
 const STAT_LABELS = ['HP', 'Atk', 'Def', 'SpA', 'SpD', 'Spe'];
 const DEX = new Map(POKEDEX.map((p) => [p.id, p]));
-const EVOLVES_TO = new Map();
-for (const p of POKEDEX) {
-  if (!p.from) continue;
-  if (!EVOLVES_TO.has(p.from)) EVOLVES_TO.set(p.from, []);
-  EVOLVES_TO.get(p.from).push(p.id);
-}
 const NEUTRAL_NATURE = NATURES.findIndex((n) => n.name === 'hardy');
 
 const ATTRS = [
@@ -1538,7 +1542,6 @@ function abilityOf(speciesId, slot) {
   if (slot === 2) return sp.hidden || sp.abil[0] || '';
   return sp.abil[slot] || sp.abil[0] || sp.hidden || '';
 }
-const abilityName = (slug) => ABILITIES[slug] ?? slug;
 
 function realStats(speciesId, level, ivs, natureIdx, ability) {
   const sp = DEX.get(speciesId);
@@ -1668,72 +1671,6 @@ function rate(speciesId, level, ivs, natureIdx, abilitySlot) {
   return out;
 }
 
-// Every species this one can still become, including itself.
-function evolutionLine(speciesId) {
-  const out = [speciesId];
-  for (const child of EVOLVES_TO.get(speciesId) ?? []) out.push(...evolutionLine(child));
-  return out;
-}
-function finalForms(speciesId) {
-  const kids = EVOLVES_TO.get(speciesId) ?? [];
-  if (!kids.length) return [speciesId];
-  return kids.flatMap(finalForms);
-}
-
-// Potential: the best overall this individual can reach at level 100 in any final form.
-// It does not depend on the current level, so it is cached per individual.
-const potCache = new Map();
-function potentials(player) {
-  const key = `${player.species}|${player.ivs.join(',')}|${player.nature}|${player.abilitySlot}`;
-  let hit = potCache.get(key);
-  if (hit) return hit;
-  hit = {};
-  for (const form of finalForms(player.species)) {
-    const r = rate(form, 100, player.ivs, player.nature, player.abilitySlot);
-    for (const pos of POS_KEYS) hit[pos] = Math.max(hit[pos] ?? 0, r.ovr[pos]);
-  }
-  hit.best = Math.max(...FIELD_POS.map((pos) => hit[pos]));
-  if (potCache.size > 20000) potCache.clear();
-  potCache.set(key, hit);
-  return hit;
-}
-function potential(player, pos) {
-  const pots = potentials(player);
-  return pos ? pots[pos] : pots.best;
-}
-
-// ---- Experience and levels (the main-series growth-rate curves) ----
-function expForLevel(growth, n) {
-  if (n <= 1) return 0;
-  const n3 = n ** 3;
-  switch (growth) {
-    case 'fast': return Math.floor((4 * n3) / 5);
-    case 'medium': return n3;
-    case 'slow': return Math.floor((5 * n3) / 4);
-    case 'medium-slow': return Math.max(0, Math.floor((6 * n3) / 5 - 15 * n * n + 100 * n - 140));
-    case 'slow-then-very-fast':
-      if (n <= 50) return Math.floor((n3 * (100 - n)) / 50);
-      if (n <= 68) return Math.floor((n3 * (150 - n)) / 100);
-      if (n <= 98) return Math.floor((n3 * Math.floor((1911 - 10 * n) / 3)) / 500);
-      return Math.floor((n3 * (160 - n)) / 100);
-    case 'fast-then-very-slow':
-      if (n <= 15) return Math.floor((n3 * (Math.floor((n + 1) / 3) + 24)) / 50);
-      if (n <= 36) return Math.floor((n3 * (n + 14)) / 50);
-      return Math.floor((n3 * (Math.floor(n / 2) + 32)) / 50);
-    default: return n3;
-  }
-}
-function levelForExp(growth, exp) {
-  let lvl = 1;
-  while (lvl < 100 && expForLevel(growth, lvl + 1) <= exp) lvl++;
-  return lvl;
-}
-
-const typeName = (i) => TYPES[i];
-function speciesTypes(speciesId) {
-  return DEX.get(speciesId).types;
-}
-
 // ---- engine/perks.js
 // Type matchups and the abilities that act during a game.
 
@@ -1845,11 +1782,25 @@ const typeLabel = (i) => TYPES[i][0].toUpperCase() + TYPES[i].slice(1);
 const typeChip = (i) => `<span class="chip" style="background:${TYPE_COLORS[TYPES[i]]};color:#fff">${typeLabel(i)}</span>`;
 const typeChips = (species) => `<span class="chips">${DEX.get(species).types.map(typeChip).join('')}</span>`;
 
-function jersey(species, num, size = '') {
+// Artwork loads from PokeAPI's sprite repository when the page opens; this repo stores no images.
+// If an image cannot load, the badge falls back to a jersey in the Pokémon's type colors.
+const SPRITE_BASE = 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon';
+const spriteUrl = (id) => `${SPRITE_BASE}/${id}.png`;
+const artUrl = (id) => `${SPRITE_BASE}/other/official-artwork/${id}.png`;
+
+function typeColors(species) {
   const t = DEX.get(species).types;
-  const c1 = TYPE_COLORS[TYPES[t[0]]];
-  const c2 = TYPE_COLORS[TYPES[t[1] ?? t[0]]];
-  return `<span class="jersey ${size}" style="--j1:${c1};--j2:${c2}" aria-hidden="true">${esc(num)}</span>`;
+  return `--j1:${TYPE_COLORS[TYPES[t[0]]]};--j2:${TYPE_COLORS[TYPES[t[1] ?? t[0]]]}`;
+}
+
+// Small sprite with the jersey number in the corner.
+function mon(species, num = '', size = '') {
+  return `<span class="mon ${size}" style="${typeColors(species)}" aria-hidden="true"><img src="${spriteUrl(species)}" alt="" loading="lazy" decoding="async" data-sprite="1"><span class="num">${esc(num)}</span></span>`;
+}
+
+// Large official artwork for the player card.
+function bigArt(species, num = '') {
+  return `<span class="art" style="${typeColors(species)}" aria-hidden="true"><img src="${artUrl(species)}" alt="" decoding="async" data-sprite="1"><span class="num">${esc(num)}</span></span>`;
 }
 
 function ovrTier(v) {
@@ -1933,7 +1884,9 @@ function ballSpots(result) {
       else if (e.kind === 'kickoff') end = { poss: e.poss, yl: e.yl };
       else end = { poss: e.poss, yl: Math.max(0, Math.min(100, start + (e.yards ?? 0))) };
     }
-    spots.push({ poss: e.poss, start, end, down: e.down, dist: e.dist, kind: e.kind });
+    const actor = e.carrier ?? e.target;
+    const line = actor ? result.players.find((p) => p.pid === actor && p.side === e.poss) : null;
+    spots.push({ poss: e.poss, start, end, down: e.down, dist: e.dist, kind: e.kind, species: line?.species ?? null });
   }
   return spots;
 }
@@ -1963,6 +1916,7 @@ function fieldSvg(result, spot) {
     if (Math.abs(endX - los) > 2) {
       marks += `<path d="M ${los} 130 Q ${(los + endX) / 2} ${spot.kind === 'pass' ? 60 : 118} ${endX} 130" fill="none" stroke="${color}" stroke-width="5" stroke-linecap="round" opacity="0.95"/>`;
     }
+    if (spot.species) marks += `<image href="${spriteUrl(spot.species)}" x="${endX - 48}" y="18" width="96" height="96" style="image-rendering:pixelated"/>`;
     marks += `<g class="ball" transform="translate(${endX} 130)"><ellipse rx="15" ry="10" fill="#7a4a24" stroke="#fff" stroke-width="2.5"/><line x1="-6" y1="0" x2="6" y2="0" stroke="#fff" stroke-width="2"/></g>`;
   }
   const ez = (side) => {
@@ -2065,49 +2019,32 @@ function playerCard(p, { contextPos = null, actions = '', extra = '' } = {}) {
   const sp = DEX.get(p.species);
   const r = rate(p.species, p.level, p.ivs, p.nature, p.abilitySlot);
   const pos = contextPos ?? r.best;
-  const pots = potentials(p);
   const base = sp.base;
-  const real = realStats(p.species, p.level, p.ivs, p.nature, r.ability);
-  const realVals = [real.hp, real.atk, real.def, real.spa, real.spd, real.spe];
-  const posBars = POS_KEYS.map((k) => ({ label: POSITIONS[k].name, value: r.ovr[k], hot: k === pos, title: `Potential ${pots[k]}` }));
+  const posBars = POS_KEYS.map((k) => ({ label: POSITIONS[k].name, value: r.ovr[k], hot: k === pos }));
   const keyAttrs = new Set(Object.keys(POSITIONS[pos].w));
   const attrBars = ATTRS.map((a) => ({ label: a.name, value: r.attrs[a.key], hot: keyAttrs.has(a.key), title: `From ${a.from}` }));
   return `<div class="stack">
     <div class="card-head">
-      ${jersey(p.species, p.num || sp.id, 'lg')}
+      ${bigArt(p.species, p.num || '')}
       <div style="min-width:0">
         <div class="eyebrow">#${String(sp.id).padStart(4, '0')} · ${esc(sp.genus)} · Gen ${sp.gen}</div>
         <h2>${esc(sp.name)}</h2>
-        <div class="row" style="gap:6px;margin-top:4px">${typeChips(p.species)}<span class="pill">Lv ${p.level}</span>${sp.leg ? '<span class="pill flag">Legendary</span>' : ''}${sp.myth ? '<span class="pill flag">Mythical</span>' : ''}</div>
+        <div class="row" style="gap:6px;margin-top:4px">${typeChips(p.species)}${sp.leg ? '<span class="pill flag">Legendary</span>' : ''}${sp.myth ? '<span class="pill flag">Mythical</span>' : ''}</div>
       </div>
-      <div class="big-ovr"><div class="eyebrow">${pos} OVR</div><div class="v">${r.ovr[pos]}</div><div class="faint small">POT ${pots[pos]}</div></div>
+      <div class="big-ovr"><div class="eyebrow">${pos} OVR</div><div class="v">${r.ovr[pos]}</div></div>
     </div>
     ${actions ? `<div class="row">${actions}</div>` : ''}
     ${extra}
     <div class="card-section"><div class="eyebrow" style="margin-bottom:6px">Ability</div>
       <b>${esc(abilityTitle(r.ability))}</b> <span class="muted">${esc(perkText(r.ability))}</span></div>
-    <div class="card-section"><div class="spread" style="margin-bottom:8px"><span class="eyebrow">Overall by position</span><span class="faint small">Hover for potential</span></div>${barRows(posBars)}</div>
-    <div class="card-section"><div class="spread" style="margin-bottom:8px"><span class="eyebrow">Football ratings at Lv ${p.level}</span><span class="faint small">Highlighted = used at ${pos}</span></div>${barRows(attrBars)}</div>
-    <div class="card-section"><div class="eyebrow" style="margin-bottom:8px">Real stats (base → at Lv ${p.level})</div>
-      <div class="statgrid">${STAT_LABELS.map((l, i) => `<div><div class="k">${l}</div><div class="v">${base[i]}</div><div class="faint small num">${realVals[i]}</div></div>`).join('')}</div>
-      <div class="faint small" style="margin-top:6px">Base stat total ${base.reduce((a, b) => a + b, 0)}. IVs ${p.ivs.join('/')}.</div></div>
+    <div class="card-section"><div class="eyebrow" style="margin-bottom:8px">Overall by position</div>${barRows(posBars)}</div>
+    <div class="card-section"><div class="spread" style="margin-bottom:8px"><span class="eyebrow">Football ratings</span><span class="faint small">Highlighted = used at ${pos}</span></div>${barRows(attrBars)}</div>
+    <div class="card-section"><div class="eyebrow" style="margin-bottom:8px">Base stats</div>
+      <div class="statgrid">${STAT_LABELS.map((l, i) => `<div><div class="k">${l}</div><div class="v">${base[i]}</div></div>`).join('')}</div>
+      <div class="faint small" style="margin-top:6px">Total ${base.reduce((a, b) => a + b, 0)}</div></div>
     <div class="card-section"><div class="eyebrow" style="margin-bottom:6px">Body</div>
       <div class="small">${(sp.h / 10).toFixed(1)} m · ${(sp.w / 10).toFixed(1)} kg · ${esc(SHAPE_LABELS[sp.shape] ?? sp.shape)} body: hands ${Math.round(SHAPE_HANDS[sp.shape] * 100)}%, kicking legs ${Math.round(SHAPE_LEGS[sp.shape] * 100)}%</div></div>
-    ${evolutionRow(sp)}
   </div>`;
-}
-
-function evolutionRow(sp) {
-  let root = sp;
-  while (root.from) root = DEX.get(root.from);
-  const parts = [];
-  const walk = (s, depth) => {
-    parts.push(`${depth ? `<span class="arrow">→ Lv ${s.evoLvl}</span>` : ''}<span>${s.id === sp.id ? `<b>${esc(s.name)}</b>` : esc(s.name)}</span>`);
-    for (const k of EVOLVES_TO.get(s.id) ?? []) walk(DEX.get(k), depth + 1);
-  };
-  walk(root, 0);
-  if (parts.length === 1) return '<div class="card-section"><div class="eyebrow" style="margin-bottom:6px">Evolution</div><div class="small muted">Does not evolve.</div></div>';
-  return `<div class="card-section"><div class="eyebrow" style="margin-bottom:6px">Evolution line</div><div class="evo">${parts.join('')}</div></div>`;
 }
 
 // ---------------------------------------------------------------- margin histogram
@@ -2180,19 +2117,6 @@ const PERFECT = [31, 31, 31, 31, 31, 31];
 // A player is one individual Pokémon: species, level, IVs, nature and ability slot.
 function makePlayer({ pid, species, level, ivs = PERFECT, nature = NEUTRAL_NATURE, abilitySlot = 0, num = 0 }) {
   return { pid, species, level, ivs, nature, abilitySlot, num };
-}
-
-function randomPlayer(rng, pid, species, level) {
-  const sp = DEX.get(species);
-  const slots = [0];
-  if (sp.abil[1]) slots.push(1);
-  const abilitySlot = sp.hidden && rng.chance(0.12) ? 2 : rng.pick(slots);
-  return makePlayer({
-    pid, species, level,
-    ivs: Array.from({ length: 6 }, () => rng.int(0, 31)),
-    nature: rng.int(0, NATURES.length - 1),
-    abilitySlot,
-  });
 }
 
 const ratingOf = (p) => rate(p.species, p.level, p.ivs, p.nature, p.abilitySlot);
@@ -3315,17 +3239,18 @@ const SLOT_NUMBERS = {
 };
 const STYLE = { balanced: 0, run: 0.8, pass: -0.8 };
 const AGGR = { conservative: 0.15, normal: 0.5, aggressive: 0.9 };
+const FULL = 100; // everyone plays at full strength
 
 const built = { home: null, away: null };
 
 function exTeam(side) {
   const cfg = S.ex[side];
-  const key = JSON.stringify(cfg);
+  const key = JSON.stringify([cfg.theme, cfg.overrides, cfg.style, cfg.aggr, side === 'away' ? S.ex.home.theme : S.ex.away.theme]);
   if (built[side]?.key === key) return built[side].team;
   const theme = THEMES.find((t) => t.id === cfg.theme) ?? THEMES[0];
   const ids = new Set(themePool(theme.id));
   for (const sp of Object.values(cfg.overrides)) if (sp) ids.add(sp);
-  const players = [...ids].map((s) => exhibitionPlayer(s, cfg.level, `${side}-${s}`));
+  const players = [...ids].map((s) => exhibitionPlayer(s, FULL, `${side}-${s}`));
   const locked = {};
   for (const [slot, sp] of Object.entries(cfg.overrides)) if (sp) locked[slot] = `${side}-${sp}`;
   const lineup = autoLineup(players, { locked });
@@ -3421,7 +3346,7 @@ function renderExhibition() {
         <button class="btn big" data-action="ex-multi" title="Play the same matchup 200 times">Sim 200</button>
       </div>
       ${teamPanel('away')}
-      <p class="faint small" style="margin:0">Every Pokémon plays at the level you pick, with perfect IVs, a neutral nature, and its best ability. Ratings come from real base stats, size and body shape.</p>
+      <p class="faint small" style="margin:0">Every Pokémon plays at full strength with its best ability. Ratings come from its real base stats, size and body shape.</p>
     </aside>
     <section class="stack" style="min-width:0">${resultArea()}</section>
   </div>`;
@@ -3441,13 +3366,9 @@ function teamPanel(side) {
       <div class="row" style="gap:6px"><span class="pill">OVR ${st.ovr}</span><span class="pill">OFF ${st.off}</span><span class="pill">DEF ${st.def}</span></div>
     </div>
     <div class="ctl-grid">
-      <label class="field">Team
+      <label class="field" style="grid-column:1 / -1">Team
         <select id="ex-${side}-theme" data-action="ex-theme" data-side="${side}">
           ${Object.entries(groups).map(([g, ts]) => `<optgroup label="${g}">${ts.map((t) => `<option value="${t.id}"${t.id === cfg.theme ? ' selected' : ''}>${esc(t.name)}</option>`).join('')}</optgroup>`).join('')}
-        </select></label>
-      <label class="field">Level
-        <select id="ex-${side}-level" data-action="ex-level" data-side="${side}">
-          ${[5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100].map((l) => `<option value="${l}"${l === cfg.level ? ' selected' : ''}>Lv ${l}</option>`).join('')}
         </select></label>
       <label class="field">Play style
         <select id="ex-${side}-style" data-action="ex-style" data-side="${side}">
@@ -3482,7 +3403,7 @@ function lineupList(side, team) {
     const locked = S.ex[side].overrides[slot];
     return `<button class="slot${editing === slot ? ' cur' : ''}" data-action="ex-edit" data-side="${side}" data-slot="${slot}" title="${locked ? 'Your pick' : 'Picked by the optimizer'}">
       <span class="pos">${slot}${locked ? ' •' : ''}</span>
-      <span class="who">${jersey(p.species, p.num, 'sm')}<span style="min-width:0"><span class="who-name">${esc(DEX.get(p.species).name)}</span> ${typeChips(p.species)}</span></span>
+      <span class="who">${mon(p.species, p.num)}<span style="min-width:0"><span class="who-name">${esc(DEX.get(p.species).name)}</span> ${typeChips(p.species)}</span></span>
       ${ovrBadge(r.ovr[pos], `${POSITIONS[pos].name} overall`)}
     </button>${editing === slot ? picker(side, slot) : ''}`;
   }).join('')}</div>`).join('')}</div>`;
@@ -3490,17 +3411,16 @@ function lineupList(side, team) {
 
 function picker(side, slot) {
   const pos = SLOT_POS[slot];
-  const level = S.ex[side].level;
   const q = S.ex.pickQ.trim().toLowerCase();
   const list = POKEDEX
     .filter((sp) => !q || sp.name.toLowerCase().includes(q))
-    .map((sp) => ({ sp, ovr: ratingOf(exhibitionPlayer(sp.id, level)).ovr[pos] }))
+    .map((sp) => ({ sp, ovr: ratingOf(exhibitionPlayer(sp.id, FULL)).ovr[pos] }))
     .sort((a, b) => b.ovr - a.ovr)
     .slice(0, 60);
   return `<div class="picker" style="margin:4px 0 8px">
     <div style="padding:8px"><input type="search" id="ex-pick-q" data-action="ex-pick-q" placeholder="Search all 1,025 Pokémon for ${slot}" value="${esc(S.ex.pickQ)}" style="width:100%"></div>
     <div class="picker-list">${list.map(({ sp, ovr }) => `<button class="picker-item" data-action="ex-pick" data-side="${side}" data-slot="${slot}" data-sp="${sp.id}">
-      <span class="who">${jersey(sp.id, sp.id, 'sm')}<span style="min-width:0"><span class="who-name">${esc(sp.name)}</span> ${typeChips(sp.id)}</span></span>${ovrBadge(ovr)}</button>`).join('') || '<div class="empty">No Pokémon match.</div>'}</div>
+      <span class="who">${mon(sp.id)}<span style="min-width:0"><span class="who-name">${esc(sp.name)}</span> ${typeChips(sp.id)}</span></span>${ovrBadge(ovr)}</button>`).join('') || '<div class="empty">No Pokémon match.</div>'}</div>
   </div>`;
 }
 
@@ -3592,7 +3512,6 @@ function handleExhibition(action, el) {
     case 'ex-view': S.ex.view = el.dataset.view; return true;
     case 'show-play': if (S.ex.watchI === null) S.ex.cur = Number(el.dataset.i); return true;
     case 'ex-theme': S.ex[side].theme = el.value; S.ex[side].overrides = {}; saveUi(); return true;
-    case 'ex-level': S.ex[side].level = Number(el.value); saveUi(); return true;
     case 'ex-style': S.ex[side].style = el.value; saveUi(); return true;
     case 'ex-aggr': S.ex[side].aggr = el.value; saveUi(); return true;
     case 'ex-toggle': S.ex.open[side] = !S.ex.open[side]; S.ex.editing = null; return true;
@@ -3653,7 +3572,7 @@ function scoutRows() {
     if (f.gen !== 'all' && sp.gen !== Number(f.gen)) continue;
     if (f.legend === 'none' && (sp.leg || sp.myth)) continue;
     if (f.legend === 'only' && !(sp.leg || sp.myth)) continue;
-    const p = exhibitionPlayer(sp.id, f.level);
+    const p = exhibitionPlayer(sp.id, 100);
     const r = ratingOf(p);
     const pos = f.pos === 'best' ? r.best : f.pos;
     rows.push({ sp, p, r, pos, ovr: r.ovr[pos] });
@@ -3664,7 +3583,6 @@ function scoutRows() {
     if (key === 'id') return row.sp.id;
     if (key === 'name') return row.sp.name;
     if (key === 'bst') return row.sp.base.reduce((a, b) => a + b, 0);
-    if (key === 'pot') return potentials(row.p)[row.pos];
     return row.r.attrs[key];
   };
   rows.sort((a, b) => {
@@ -3684,7 +3602,7 @@ function renderScout() {
   const shown = rows.slice(f.page * PAGE, f.page * PAGE + PAGE);
   const sel = POKEDEX.find((sp) => sp.id === f.sel) ?? rows[0]?.sp;
   const th = (key, label, cls = '') => `<th class="${cls}"><button data-action="sc-sort" data-key="${key}" aria-pressed="${f.sort === key}">${label}${f.sort === key ? (f.dir < 0 ? ' ↓' : ' ↑') : ''}</button></th>`;
-  const selPlayer = sel ? exhibitionPlayer(sel.id, f.level) : null;
+  const selPlayer = sel ? exhibitionPlayer(sel.id, 100) : null;
   const selPos = sel ? (f.pos === 'best' ? ratingOf(selPlayer).best : f.pos) : null;
   return `<div class="stack">
     <div class="spread">
@@ -3701,8 +3619,6 @@ function renderScout() {
           <select id="sc-gen" data-action="sc-gen"><option value="all">All regions</option>${REGIONS.map((r, i) => `<option value="${i + 1}"${String(i + 1) === f.gen ? ' selected' : ''}>${r}</option>`).join('')}</select></label>
         <label class="field" style="flex:1 1 120px">Legends
           <select id="sc-legend" data-action="sc-legend">${[['all', 'Include'], ['none', 'Leave out'], ['only', 'Only legends']].map(([v, l]) => `<option value="${v}"${f.legend === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
-        <label class="field" style="flex:1 1 90px">Level
-          <select id="sc-level" data-action="sc-level">${[5, 25, 50, 75, 100].map((l) => `<option value="${l}"${l === f.level ? ' selected' : ''}>Lv ${l}</option>`).join('')}</select></label>
       </div>
     </div>
     <div class="layout" style="grid-template-columns:minmax(0,1fr) minmax(300px,400px)">
@@ -3710,13 +3626,13 @@ function renderScout() {
         <div class="panel-head"><span class="muted small">${rows.length.toLocaleString()} Pokémon · page ${f.page + 1} of ${pages}</span>
           <span class="row"><button class="btn small" data-action="sc-page" data-d="-1"${f.page === 0 ? ' disabled' : ''}>Previous</button><button class="btn small" data-action="sc-page" data-d="1"${f.page >= pages - 1 ? ' disabled' : ''}>Next</button></span></div>
         <div class="table-wrap"><table class="data">
-          <thead><tr>${th('id', '#', 'l')}${th('name', 'Pokémon', 'l')}<th>Pos</th>${th('ovr', 'OVR')}${th('pot', 'POT')}${ATTRS.map((a) => th(a.key, a.key)).join('')}${th('bst', 'BST')}</tr></thead>
+          <thead><tr>${th('id', '#', 'l')}${th('name', 'Pokémon', 'l')}<th>Pos</th>${th('ovr', 'OVR')}${ATTRS.map((a) => th(a.key, a.key)).join('')}${th('bst', 'BST')}</tr></thead>
           <tbody>${shown.map((row) => `<tr class="clickable${row.sp.id === sel?.id ? ' sel' : ''}" data-action="sc-pick" data-id="${row.sp.id}">
             <td class="l faint">${row.sp.id}</td>
-            <td class="l"><b>${esc(row.sp.name)}</b> ${typeChips(row.sp.id)}</td>
-            <td>${row.pos}</td><td>${ovrBadge(row.ovr)}</td><td class="faint">${potentials(row.p)[row.pos]}</td>
+            <td class="l"><span class="who">${mon(row.sp.id, '', 'xs')}<span><b>${esc(row.sp.name)}</b> ${typeChips(row.sp.id)}</span></span></td>
+            <td>${row.pos}</td><td>${ovrBadge(row.ovr)}</td>
             ${ATTRS.map((a) => `<td${POSITIONS[row.pos].w[a.key] ? ' style="font-weight:700"' : ' class="faint"'}>${row.r.attrs[a.key]}</td>`).join('')}
-            <td class="faint">${row.sp.base.reduce((x, y) => x + y, 0)}</td></tr>`).join('') || `<tr><td class="l" colspan="22"><div class="empty">No Pokémon match these filters.</div></td></tr>`}</tbody>
+            <td class="faint">${row.sp.base.reduce((x, y) => x + y, 0)}</td></tr>`).join('') || `<tr><td class="l" colspan="21"><div class="empty">No Pokémon match these filters.</div></td></tr>`}</tbody>
         </table></div>
       </div>
       <div class="panel sticky-card" style="position:sticky;top:76px">${sel ? playerCard(selPlayer, {
@@ -3731,11 +3647,10 @@ function handleScout(action, el) {
   const f = S.scout;
   switch (action) {
     case 'sc-q': f.q = el.value; f.page = 0; return true;
-    case 'sc-pos': f.pos = el.value; f.page = 0; if (f.sort !== 'ovr' && f.sort !== 'pot') f.sort = 'ovr'; return true;
+    case 'sc-pos': f.pos = el.value; f.page = 0; if (f.sort !== 'ovr') f.sort = 'ovr'; return true;
     case 'sc-type': f.type = el.value; f.page = 0; return true;
     case 'sc-gen': f.gen = el.value; f.page = 0; return true;
     case 'sc-legend': f.legend = el.value; f.page = 0; return true;
-    case 'sc-level': f.level = Number(el.value); return true;
     case 'sc-page': f.page = Math.max(0, f.page + Number(el.dataset.d)); return true;
     case 'sc-sort': {
       const key = el.dataset.key;
@@ -3757,18 +3672,19 @@ function handleScout(action, el) {
 }
 
 // ---- engine/league.js
-// Legacy mode: a league that runs for as many seasons as you like.
-// Fantasy draft -> season -> playoffs -> awards -> retirements -> rookie draft -> next season.
-// Players level up from game experience on their species' real growth curve and evolve at
-// their real evolution level, so a Magikarp drafted today can be a Gyarados in two seasons.
+// Season mode: a fantasy draft from every Pokémon, a regular season, and playoffs.
+// Every Pokémon plays at full strength from its real base stats, so a player never changes
+// during the season. The draft is the whole game.
 
 
 
 
 
-const LEAGUE_VERSION = 1;
-const ROSTER_MAX = 32;
-const ROSTER_MIN = 26;
+const LEAGUE_VERSION = 2;
+const ROSTER_SIZE = 28; // drafted: 24 starters and 4 backups
+const ROSTER_MAX = 30; // free-agent signings may go two over
+const ROSTER_MIN = 24; // healthy players needed to field a lineup
+const FULL_STRENGTH = 100;
 
 const TEAM_POOL = [
   { name: 'Pallet Pioneers', abbr: 'PAL', color: '#c8102e' },
@@ -3807,7 +3723,7 @@ function createLeague({ seed = 1, teamCount = 8, userName, userAbbr, userColor, 
       strategy: { runBias: Number(rng.normal(0, 0.4).toFixed(2)), aggression: Number(rng.next().toFixed(2)), blitz: Number(rng.next().toFixed(2)) },
     });
   }
-  const user = teams[clamp(teamIndex, 0, teamCount - 1)];
+  const user = teams[Math.min(Math.max(teamIndex, 0), teamCount - 1)];
   user.user = true;
   user.strategy = { runBias: 0, aggression: 0.5, blitz: 0.5 };
   if (userName) user.name = userName;
@@ -3815,53 +3731,31 @@ function createLeague({ seed = 1, teamCount = 8, userName, userAbbr, userColor, 
   if (userColor) user.color = userColor;
 
   const league = {
-    version: LEAGUE_VERSION, seed, rng: 0, season: 1, phase: 'draft', week: 0,
-    userTeam: user.id, teams, players: {}, nextPid: 1, schedule: [], playoffs: null,
-    draft: null, freeAgents: [], news: [], history: [], games: {}, logs: {},
+    version: LEAGUE_VERSION, seed, rng: 0, phase: 'draft', week: 0,
+    userTeam: user.id, teams, players: {}, schedule: [], playoffs: null,
+    draft: null, freeAgents: [], news: [], games: {}, logs: {}, final: null,
   };
-  // One individual of every species, at a level that fits its stage.
+  // Every Pokémon is in the pool, at full strength with its best ability.
   for (const sp of POKEDEX) {
-    const p = newPlayer(league, rng, sp.id, startingLevel(rng, sp));
+    const p = exhibitionPlayer(sp.id, FULL_STRENGTH, `p${sp.id}`);
+    Object.assign(p, { team: null, num: 0, injury: 0, stats: {}, awards: [], draft: null });
+    league.players[p.pid] = p;
     league.freeAgents.push(p.pid);
   }
   const order = rng.shuffle(teams.map((t) => t.id));
-  league.draft = makeDraft('fantasy', order, ROSTER_MAX - 2, true, [...league.freeAgents]);
-  addNews(league, `Welcome to season 1. The fantasy draft has ${league.draft.order.length * league.draft.rounds} picks. Every Pokémon is in the pool.`);
+  league.draft = makeDraft(order, ROSTER_SIZE, [...league.freeAgents]);
+  addNews(league, `The draft is set: ${league.draft.picks.length} picks, ${ROSTER_SIZE} rounds, snake order. Every Pokémon is in the pool.`);
   league.rng = rng.state;
   return league;
 }
 
-function startingLevel(rng, sp) {
-  const kids = EVOLVES_TO.get(sp.id) ?? [];
-  const nextLvl = kids.length ? Math.min(...kids.map((k) => DEX.get(k).evoLvl)) : 101;
-  let lo, hi;
-  if (sp.leg || sp.myth) { lo = 50; hi = 66; }
-  else if (!kids.length) { lo = Math.max(48, sp.evoLvl + 4); hi = Math.max(lo + 8, 74); }
-  else if (sp.from) { lo = Math.max(sp.evoLvl, 28); hi = 55; }
-  else { lo = 10; hi = 34; }
-  hi = Math.min(hi, nextLvl - 1);
-  lo = Math.min(lo, hi);
-  return rng.int(lo, hi);
-}
-
-function newPlayer(league, rng, species, level) {
-  const pid = `p${league.nextPid++}`;
-  const p = randomPlayer(rng, pid, species, level);
-  Object.assign(p, {
-    exp: expForLevel(DEX.get(species).growth, level), team: null, num: 0, seasons: 0, rookieSeason: null,
-    injury: 0, retired: false, lineage: [species], stats: {}, awards: [], draft: null,
-  });
-  league.players[pid] = p;
-  return p;
-}
-
-function makeDraft(kind, order, rounds, snake, pool) {
+function makeDraft(order, rounds, pool) {
   const picks = [];
   for (let r = 0; r < rounds; r++) {
-    const ids = snake && r % 2 === 1 ? [...order].reverse() : order;
+    const ids = r % 2 === 1 ? [...order].reverse() : order;
     for (const t of ids) picks.push({ round: r + 1, team: t, pid: null });
   }
-  return { kind, order, rounds, picks, current: 0, pool };
+  return { order, rounds, picks, current: 0, pool };
 }
 
 const userTeam = (league) => league.teams.find((t) => t.id === league.userTeam);
@@ -3869,8 +3763,8 @@ const teamById = (league, id) => league.teams.find((t) => t.id === id);
 const rosterOf = (league, team) => team.roster.map((pid) => league.players[pid]);
 
 function addNews(league, text, kind = 'info') {
-  league.news.unshift({ season: league.season, week: league.week, phase: league.phase, text, kind });
-  if (league.news.length > 250) league.news.length = 250;
+  league.news.unshift({ week: league.week, phase: league.phase, text, kind });
+  if (league.news.length > 200) league.news.length = 200;
 }
 
 function withRng(league, fn) {
@@ -3882,16 +3776,11 @@ function withRng(league, fn) {
 }
 
 // ---------------------------------------------------------------- valuation
-function playerValue(p, { potWeight = 0.3 } = {}) {
+function playerValue(p) {
   const r = ratingOf(p);
   let best = 0;
-  let bestPos = r.best;
-  for (const pos of POS_KEYS) {
-    const v = IMPORTANCE[pos] * r.ovr[pos];
-    if (v > best) { best = v; bestPos = pos; }
-  }
-  const pot = potentials(p)[bestPos];
-  return (1 - potWeight) * best + potWeight * IMPORTANCE[bestPos] * pot + perkValue(p);
+  for (const pos of POS_KEYS) best = Math.max(best, IMPORTANCE[pos] * r.ovr[pos]);
+  return best + perkValue(p);
 }
 
 // How many starters a team still lacks at each position, from its current roster.
@@ -3905,16 +3794,13 @@ function positionNeeds(league, team) {
   return need;
 }
 
-function aiPickScore(league, team, p, needs, kind) {
+function pickScore(p, needs) {
   const r = ratingOf(p);
-  const pots = potentials(p);
-  const potW = kind === 'rookie' ? 0.55 : 0.3;
   let best = -Infinity;
   for (const pos of POS_KEYS) {
-    const pot = pots[pos];
-    let v = IMPORTANCE[pos] * ((1 - potW) * r.ovr[pos] + potW * pot);
+    let v = IMPORTANCE[pos] * r.ovr[pos];
     if (needs[pos] > 0) v += 10 * IMPORTANCE[pos];
-    if (best < v) best = v;
+    if (v > best) best = v;
   }
   return best + perkValue(p);
 }
@@ -3936,12 +3822,11 @@ function draftPlayer(league, pid) {
   const p = league.players[pid];
   const team = teamById(league, pick.team);
   pick.pid = pid;
-  p.draft = { season: league.season, round: pick.round, pick: d.current + 1, team: team.id, kind: d.kind };
-  if (d.kind === 'rookie') p.rookieSeason = league.season;
+  p.draft = { round: pick.round, pick: d.current + 1, team: team.id };
   league.freeAgents = league.freeAgents.filter((x) => x !== pid);
   signToTeam(league, team, p);
   d.current++;
-  if (team.user) addNews(league, `You drafted ${nameOf(p)} (Lv ${p.level}) in round ${pick.round}.`, 'user');
+  if (team.user) addNews(league, `You drafted ${nameOf(p)} in round ${pick.round}.`, 'user');
   if (d.current >= d.picks.length) finishDraft(league);
 }
 
@@ -3951,10 +3836,10 @@ function aiPick(league) {
   const team = teamById(league, pick.team);
   const needs = positionNeeds(league, team);
   return withRng(league, (rng) => {
-    const scored = league.draft.pool.map((pid) => ({ pid, s: aiPickScore(league, team, league.players[pid], needs, league.draft.kind) }));
+    const scored = league.draft.pool.map((pid) => ({ pid, s: pickScore(league.players[pid], needs) }));
     scored.sort((a, b) => b.s - a.s);
     const top = scored.slice(0, 3);
-    const choice = rng.weighted(top, (x, i) => Math.exp((x.s - top[0].s) / 3));
+    const choice = rng.weighted(top, (x) => Math.exp((x.s - top[0].s) / 3));
     draftPlayer(league, choice.pid);
     return choice.pid;
   });
@@ -3964,7 +3849,7 @@ function bestAvailable(league, teamId = league.userTeam, n = 1) {
   const team = teamById(league, teamId);
   const needs = positionNeeds(league, team);
   return league.draft.pool
-    .map((pid) => ({ pid, s: aiPickScore(league, team, league.players[pid], needs, league.draft.kind) }))
+    .map((pid) => ({ pid, s: pickScore(league.players[pid], needs) }))
     .sort((a, b) => b.s - a.s)
     .slice(0, n)
     .map((x) => x.pid);
@@ -3985,20 +3870,11 @@ function autoDraftRest(league) {
 }
 
 function finishDraft(league) {
-  const kind = league.draft.kind;
   league.draft = null;
-  for (const t of league.teams) fillRoster(league, t);
   for (const t of league.teams) setLineup(league, t);
-  if (kind === 'fantasy') {
-    league.phase = 'preseason';
-    makeSchedule(league);
-    addNews(league, 'The fantasy draft is complete. Set your lineup, then start the season.');
-  } else {
-    for (const t of league.teams) trimRoster(league, t);
-    league.phase = 'preseason';
-    makeSchedule(league);
-    addNews(league, `The season ${league.season} rookie draft is complete.`);
-  }
+  league.phase = 'preseason';
+  makeSchedule(league);
+  addNews(league, 'The draft is complete. Set your lineup, then start the season.');
 }
 
 function signToTeam(league, team, p) {
@@ -4019,6 +3895,7 @@ function releasePlayer(league, pid) {
   const p = league.players[pid];
   const team = teamById(league, p.team);
   if (!team) return;
+  if (team.roster.length <= ROSTER_MIN) throw new Error(`You need at least ${ROSTER_MIN} players. Sign someone first.`);
   team.roster = team.roster.filter((x) => x !== pid);
   for (const s of Object.keys(team.lineup)) if (team.lineup[s] === pid) team.lineup[s] = null;
   p.team = null;
@@ -4030,37 +3907,24 @@ function signFreeAgent(league, pid, teamId = league.userTeam) {
   const team = teamById(league, teamId);
   if (team.roster.length >= ROSTER_MAX) throw new Error(`Your roster is full (${ROSTER_MAX}). Release a player first.`);
   const p = league.players[pid];
-  if (p.team || p.retired) throw new Error('That player is not a free agent.');
+  if (p.team) throw new Error('That player is not a free agent.');
   league.freeAgents = league.freeAgents.filter((x) => x !== pid);
   signToTeam(league, team, p);
-  if (team.user) addNews(league, `You signed ${nameOf(p)} (Lv ${p.level}).`, 'user');
+  if (team.user) addNews(league, `You signed ${nameOf(p)}.`, 'user');
 }
 
-// AI teams (and short user rosters) sign the best free agents up to the minimum.
+// Teams with too few healthy players sign the best free agent they need.
 function fillRoster(league, team) {
   let guard = 0;
-  while (team.roster.filter((pid) => !league.players[pid].injury).length < ROSTER_MIN && league.freeAgents.length && guard++ < 40) {
+  while (team.roster.filter((pid) => !league.players[pid].injury).length < ROSTER_MIN && league.freeAgents.length && guard++ < 20) {
     const needs = positionNeeds(league, team);
     const best = league.freeAgents
       .map((pid) => league.players[pid])
-      .filter((p) => !p.retired)
-      .map((p) => ({ p, s: aiPickScore(league, team, p, needs, 'fantasy') }))
+      .map((p) => ({ p, s: pickScore(p, needs) }))
       .sort((a, b) => b.s - a.s)[0];
-    if (!best) break;
     league.freeAgents = league.freeAgents.filter((x) => x !== best.p.pid);
     signToTeam(league, team, best.p);
-    if (team.user) addNews(league, `Your roster was short, so ${nameOf(best.p)} (Lv ${best.p.level}) signed as a free agent.`, 'user');
-  }
-}
-
-function trimRoster(league, team) {
-  while (team.roster.length > ROSTER_MAX) {
-    // Cut on future value too, and keep this season's draft picks when possible.
-    const cuttable = rosterOf(league, team).filter((p) => p.rookieSeason !== league.season);
-    const pool = cuttable.length ? cuttable : rosterOf(league, team);
-    const worst = pool.sort((a, b) => playerValue(a, { potWeight: 0.5 }) - playerValue(b, { potWeight: 0.5 }))[0];
-    releasePlayer(league, worst.pid);
-    if (team.user) addNews(league, `Roster limit: ${nameOf(worst)} was released to get down to ${ROSTER_MAX}.`, 'user');
+    if (team.user) addNews(league, `Too many players fainted, so ${nameOf(best.p)} signed as a free agent.`, 'user');
   }
 }
 
@@ -4114,20 +3978,17 @@ function makeSchedule(league) {
   const weeks = [...half, ...half.map((gs) => gs.map((g) => ({ home: g.away, away: g.home })))];
   league.schedule = weeks.map((games, w) => ({
     week: w + 1,
-    games: games.map((g, i) => ({ id: `s${league.season}w${w + 1}g${i}`, ...g, result: null })),
+    games: games.map((g, i) => ({ id: `w${w + 1}g${i}`, ...g, result: null })),
   }));
   league.week = 0;
-  league.playoffs = null;
-  league.games = {};
-  league.logs = {};
 }
 
 function startSeason(league) {
-  if (league.phase !== 'preseason') throw new Error('The season can start only from the preseason.');
+  if (league.phase !== 'preseason') throw new Error('The season can start only after the draft.');
   for (const t of league.teams) { fillRoster(league, t); setLineup(league, t); }
   league.phase = 'regular';
   league.week = 1;
-  addNews(league, `Season ${league.season} kicks off.`);
+  addNews(league, 'The season kicks off.');
 }
 
 // ---------------------------------------------------------------- games
@@ -4140,7 +4001,7 @@ function playGame(league, game, { neutral = false, playoff = false } = {}) {
   const userGame = home.user || away.user;
   const res = simulateGame(matchTeam(league, home), matchTeam(league, away), { seed, neutral, allowTie: !playoff, log: userGame });
   game.result = { score: res.score, ot: res.ot, winner: res.winner === null ? null : res.winner === 0 ? home.id : away.id };
-  league.games[game.id] = summarizeGame(league, game, res, userGame);
+  league.games[game.id] = summarizeGame(game, res, userGame);
   if (userGame) {
     league.logs[game.id] = { log: res.log, drives: res.drives };
     // Keep play-by-play for the five most recent user games so saves stay small.
@@ -4151,7 +4012,7 @@ function playGame(league, game, { neutral = false, playoff = false } = {}) {
   return res;
 }
 
-function summarizeGame(league, game, res, full) {
+function summarizeGame(game, res, full) {
   const top = (pick, label) => {
     const best = res.players.filter((p) => pick(p) > 0).sort((a, b) => pick(b) - pick(a))[0];
     return best ? { pid: best.pid, name: best.name, side: best.side, text: label(best) } : null;
@@ -4172,76 +4033,32 @@ function summarizeGame(league, game, res, full) {
 const STAT_GROUPS = ['pass', 'rush', 'rec', 'def', 'kick', 'punt', 'ret'];
 const MAX_KEYS = new Set(['lng']);
 
-function emptySeasonLine(teamId) {
-  return { team: teamId, gp: 0, pass: {}, rush: {}, rec: {}, def: {}, kick: {}, punt: {}, ret: {} };
-}
-
 function applyGame(league, res, home, away, playoff) {
-  const teams = [home, away];
-  const avgLevel = (t) => {
-    const ps = Object.values(t.lineup).map((pid) => league.players[pid]).filter(Boolean);
-    return ps.reduce((s, p) => s + p.level, 0) / Math.max(1, ps.length);
-  };
-  const oppLevel = [avgLevel(away), avgLevel(home)];
-  const key = playoff ? `${league.season}p` : `${league.season}`;
+  const key = playoff ? 'post' : 'reg';
   const played = new Set();
   for (const line of res.players) {
     const p = league.players[line.pid];
     if (!p) continue;
     played.add(p.pid);
-    const s = (p.stats[key] ??= emptySeasonLine(p.team));
+    const s = (p.stats[key] ??= { team: p.team, gp: 0, pass: {}, rush: {}, rec: {}, def: {}, kick: {}, punt: {}, ret: {} });
     s.gp++;
     s.slot = SLOT_POS[line.slot];
     for (const grp of STAT_GROUPS) {
-      for (const [k, v] of Object.entries(line[grp])) {
-        s[grp][k] = MAX_KEYS.has(k) ? Math.max(s[grp][k] ?? 0, v) : (s[grp][k] ?? 0) + v;
-      }
+      for (const [k, v] of Object.entries(line[grp])) s[grp][k] = MAX_KEYS.has(k) ? Math.max(s[grp][k] ?? 0, v) : (s[grp][k] ?? 0) + v;
     }
   }
+  // Starters sometimes faint and miss a few weeks.
   withRng(league, (rng) => {
-    teams.forEach((t, side) => {
-      const won = res.winner === side;
+    for (const t of [home, away]) {
       for (const p of rosterOf(league, t)) {
-        const starter = played.has(p.pid);
-        const gain = Math.round(55 * oppLevel[side] * (starter ? 1 : 0.3) * (won ? 1.2 : 1) * (playoff ? 1.5 : 1));
-        gainExp(league, p, gain, ratingOf(p).best);
         if (p.injury > 0) p.injury--;
-        else if (starter && rng.chance(0.006 + 0.006 * (1 - ratingOf(p).attrs.STA / 99))) {
+        else if (played.has(p.pid) && rng.chance(0.006 + 0.006 * (1 - ratingOf(p).attrs.STA / 99))) {
           p.injury = rng.int(1, 4);
           addNews(league, `${t.abbr} ${nameOf(p)} fainted and will miss ${p.injury} week${p.injury > 1 ? 's' : ''}.`, t.user ? 'user' : 'injury');
         }
       }
-    });
-  });
-}
-
-// Level ups follow the species' growth curve; evolutions happen at the real evolution level.
-function gainExp(league, p, amount, pos) {
-  const sp = DEX.get(p.species);
-  p.exp += amount;
-  const before = p.level;
-  p.level = Math.max(p.level, levelForExp(sp.growth, p.exp));
-  if (p.level > before) evolve(league, p, pos);
-}
-
-function evolve(league, p, pos) {
-  let guard = 0;
-  while (guard++ < 3) {
-    const kids = (EVOLVES_TO.get(p.species) ?? []).filter((k) => DEX.get(k).evoLvl <= p.level);
-    if (!kids.length) return;
-    // Branching lines (Eevee, Tyrogue...) evolve into the form that suits the player's position.
-    const position = pos ?? ratingOf(p).best;
-    const choice = kids.reduce((a, b) => (rate(b, p.level, p.ivs, p.nature, p.abilitySlot).ovr[position] > rate(a, p.level, p.ivs, p.nature, p.abilitySlot).ovr[position] ? b : a));
-    const from = nameOf(p);
-    p.species = choice;
-    // Experience curves differ between some stages; keep the level, rebase the experience.
-    p.exp = Math.max(p.exp, expForLevel(DEX.get(choice).growth, p.level));
-    p.lineage.push(choice);
-    if (league) {
-      const team = teamById(league, p.team);
-      addNews(league, `What? ${from} is evolving! ${team ? team.abbr + ' ' : ''}${from} evolved into ${nameOf(p)}!`, team?.user ? 'user' : 'evolve');
     }
-  }
+  });
 }
 
 function currentWeekGames(league) {
@@ -4268,10 +4085,9 @@ function simSeason(league) {
 }
 
 // ---------------------------------------------------------------- standings and playoffs
-function standings(league, season = league.season) {
+function standings(league) {
   const rows = new Map(league.teams.map((t) => [t.id, { team: t.id, w: 0, l: 0, t: 0, pf: 0, pa: 0, streak: '' }]));
-  const sched = season === league.season ? league.schedule : [];
-  for (const wk of sched) {
+  for (const wk of league.schedule) {
     for (const g of wk.games) {
       if (!g.result) continue;
       const h = rows.get(g.home);
@@ -4301,16 +4117,15 @@ function startPlayoffs(league) {
     league.playoffs = {
       seeds, round: 1,
       rounds: [
-        { name: 'Elite Four Round', games: [{ id: `s${league.season}p1g0`, home: seeds[0], away: seeds[3], result: null }, { id: `s${league.season}p1g1`, home: seeds[1], away: seeds[2], result: null }] },
+        { name: 'Elite Four Round', games: [{ id: 'p1g0', home: seeds[0], away: seeds[3], result: null }, { id: 'p1g1', home: seeds[1], away: seeds[2], result: null }] },
         { name: 'Champion Bowl', games: [] },
       ],
       champion: null,
     };
   } else {
-    league.playoffs = { seeds, round: 2, rounds: [null, { name: 'Champion Bowl', games: [{ id: `s${league.season}p2g0`, home: seeds[0], away: seeds[1], result: null }] }], champion: null };
+    league.playoffs = { seeds, round: 2, rounds: [null, { name: 'Champion Bowl', games: [{ id: 'p2g0', home: seeds[0], away: seeds[1], result: null }] }], champion: null };
   }
-  const names = seeds.map((id) => teamById(league, id).name).join(', ');
-  addNews(league, `Playoffs set. Seeds: ${names}.`);
+  addNews(league, `Playoffs set. Seeds: ${seeds.map((id) => teamById(league, id).name).join(', ')}.`);
 }
 
 function playPlayoffRound(league) {
@@ -4321,7 +4136,7 @@ function playPlayoffRound(league) {
   if (po.round === 1) {
     const winners = round.games.map((g) => g.result.winner);
     winners.sort((a, b) => po.seeds.indexOf(a) - po.seeds.indexOf(b));
-    po.rounds[1].games = [{ id: `s${league.season}p2g0`, home: winners[0], away: winners[1], result: null }];
+    po.rounds[1].games = [{ id: 'p2g0', home: winners[0], away: winners[1], result: null }];
     po.round = 2;
     addNews(league, `${teamById(league, winners[0]).name} and ${teamById(league, winners[1]).name} advance to the Champion Bowl.`);
     return;
@@ -4329,125 +4144,43 @@ function playPlayoffRound(league) {
   const final = round.games[0];
   po.champion = final.result.winner;
   const champ = teamById(league, po.champion);
-  const runnerUp = final.result.winner === final.home ? final.away : final.home;
-  addNews(league, `${champ.name} win the season ${league.season} Champion Bowl, ${Math.max(...final.result.score)}-${Math.min(...final.result.score)}!`, champ.user ? 'user' : 'champion');
-  endSeason(league, runnerUp);
+  addNews(league, `${champ.name} win the Champion Bowl, ${Math.max(...final.result.score)}-${Math.min(...final.result.score)}!`, champ.user ? 'user' : 'champion');
+  endSeason(league, final.result.winner === final.home ? final.away : final.home);
 }
 
-// ---------------------------------------------------------------- awards and history
-function seasonScore(line, pos) {
+// ---------------------------------------------------------------- awards
+function seasonScore(line) {
   if (!line) return 0;
   const g = (grp, k) => line[grp]?.[k] ?? 0;
   const off = g('pass', 'yds') / 25 + g('pass', 'td') * 4 - g('pass', 'int') * 2 + g('rush', 'yds') / 10 + g('rush', 'td') * 6
     + g('rec', 'yds') / 10 + g('rec', 'td') * 6 + g('rec', 'rec') * 0.5 - g('rush', 'fum') * 2;
   const dfn = g('def', 'tkl') + g('def', 'sck') * 4 + g('def', 'tfl') + g('def', 'ff') * 3 + g('def', 'int') * 6 + g('def', 'pd') * 1.5 + g('def', 'td') * 6;
-  const kick = g('kick', 'fgm') * 3 + g('kick', 'xpm') - (g('kick', 'fga') - g('kick', 'fgm')) * 2;
-  if (pos === 'K' || pos === 'P') return kick + g('punt', 'yds') / 100;
   return off + dfn * 1.3;
 }
 
-function slotOfSeason(p, key) {
-  return p.stats[key]?.slot ?? ratingOf(p).best;
-}
-
 function endSeason(league, runnerUp) {
-  const key = `${league.season}`;
-  const active = Object.values(league.players).filter((p) => p.stats[key]);
-  const scoreOf = (p) => seasonScore(p.stats[key], slotOfSeason(p, key));
-  const best = (filter) => active.filter(filter).sort((a, b) => scoreOf(b) - scoreOf(a))[0];
-  const isDef = (p) => POSITIONS[ratingOf(p).best]?.side === 'D' || (p.stats[key].def.tkl ?? 0) > 20;
-  const standingsRows = standings(league);
-  const winPct = new Map(standingsRows.map((r) => [r.team, r.pct]));
-  const mvp = active.filter((p) => !isDef(p)).sort((a, b) => scoreOf(b) * (0.7 + 0.6 * (winPct.get(b.team) ?? 0)) - scoreOf(a) * (0.7 + 0.6 * (winPct.get(a.team) ?? 0)))[0];
-  const opoy = best((p) => !isDef(p) && p !== mvp);
-  const dpoy = best((p) => isDef(p));
-  const roy = best((p) => p.rookieSeason === league.season);
+  const active = Object.values(league.players).filter((p) => p.stats.reg);
+  const scoreOf = (p) => seasonScore(p.stats.reg);
+  const isDef = (p) => POSITIONS[p.stats.reg.slot ?? ratingOf(p).best]?.side === 'D';
+  const table = standings(league);
+  const winPct = new Map(table.map((r) => [r.team, r.pct]));
+  const mvpScore = (p) => scoreOf(p) * (0.7 + 0.6 * (winPct.get(p.team) ?? 0));
+  const offense = active.filter((p) => !isDef(p) && !['K', 'P'].includes(p.stats.reg.slot));
+  const mvp = [...offense].sort((a, b) => mvpScore(b) - mvpScore(a))[0];
+  const opoy = offense.filter((p) => p !== mvp).sort((a, b) => scoreOf(b) - scoreOf(a))[0];
+  const dpoy = active.filter(isDef).sort((a, b) => scoreOf(b) - scoreOf(a))[0];
   const awards = {};
-  for (const [name, p] of [['MVP', mvp], ['Offensive Player of the Year', opoy], ['Defensive Player of the Year', dpoy], ['Rookie of the Year', roy]]) {
+  for (const [name, p] of [['MVP', mvp], ['Offensive Player of the Year', opoy], ['Defensive Player of the Year', dpoy]]) {
     if (!p) continue;
-    p.awards.push({ season: league.season, award: name });
+    p.awards.push(name);
     awards[name] = { pid: p.pid, name: nameOf(p), team: p.team };
     addNews(league, `${name}: ${nameOf(p)} (${teamById(league, p.team)?.abbr ?? 'FA'}).`, 'award');
   }
-  league.history.unshift({
-    season: league.season, champion: league.playoffs.champion, runnerUp,
-    userFinish: standingsRows.findIndex((r) => r.team === league.userTeam) + 1,
-    standings: standingsRows.map((r) => ({ team: r.team, name: teamById(league, r.team).name, w: r.w, l: r.l, t: r.t, pf: r.pf, pa: r.pa })),
-    awards,
-  });
-  for (const p of active) p.seasons++;
-  league.phase = 'offseason';
-}
-
-// ---------------------------------------------------------------- offseason
-function advanceOffseason(league) {
-  if (league.phase !== 'offseason') throw new Error('The offseason has not started.');
-  withRng(league, (rng) => {
-    // Retirements.
-    for (const p of Object.values(league.players)) {
-      if (p.retired) continue;
-      const s = p.seasons;
-      let chance = s < 6 ? 0.01 : 0.08 + 0.08 * (s - 6);
-      if (p.level >= 95 && s >= 4) chance += 0.1;
-      if (!p.team) chance += 0.05;
-      if (rng.chance(clamp(chance, 0, 0.95))) retire(league, p);
-    }
-    // Free agents train a little in the offseason.
-    for (const pid of league.freeAgents) gainExp(null, league.players[pid], 8000);
-    // Rookie class.
-    league.season++;
-    const classSize = league.teams.length * 3 + 6;
-    const active = new Set(Object.values(league.players).filter((p) => !p.retired).map((p) => p.species));
-    const basics = POKEDEX.filter((sp) => !sp.from && !sp.leg && !sp.myth && !active.has(sp.id));
-    const singles = basics.filter((sp) => !(EVOLVES_TO.get(sp.id) ?? []).length);
-    const evolvers = basics.filter((sp) => (EVOLVES_TO.get(sp.id) ?? []).length);
-    const legends = POKEDEX.filter((sp) => (sp.leg || sp.myth) && !active.has(sp.id));
-    const rookies = [];
-    for (let i = 0; i < classSize; i++) {
-      let sp;
-      const r = rng.next();
-      if (r < 0.04 && legends.length) sp = legends.splice(rng.int(0, legends.length - 1), 1)[0];
-      else if (r < 0.3 && singles.length) sp = singles.splice(rng.int(0, singles.length - 1), 1)[0];
-      else if (evolvers.length) sp = evolvers.splice(rng.int(0, evolvers.length - 1), 1)[0];
-      if (!sp) continue;
-      const kids = EVOLVES_TO.get(sp.id) ?? [];
-      const cap = kids.length ? Math.min(...kids.map((k) => DEX.get(k).evoLvl)) - 1 : 40;
-      const lvl = sp.leg || sp.myth ? rng.int(30, 45) : clamp(rng.int(kids.length ? 6 : 20, kids.length ? 28 : 40), 5, Math.max(5, cap));
-      const p = newPlayer(league, rng, sp.id, lvl);
-      rookies.push(p.pid);
-    }
-    const table = league.history[0]?.standings ?? [];
-    const order = [...table].reverse().map((r) => r.team);
-    league.draft = makeDraft('rookie', order, 3, false, rookies);
-    league.freeAgents.push(...rookies);
-  });
-  league.phase = 'rookie-draft';
-  league.week = 0;
-  addNews(league, `Season ${league.season} rookie draft: ${league.draft.pool.length} rookies, 3 rounds, worst record picks first.`);
-}
-
-function retire(league, p) {
-  const team = teamById(league, p.team);
-  if (team) {
-    team.roster = team.roster.filter((x) => x !== p.pid);
-    for (const s of Object.keys(team.lineup)) if (team.lineup[s] === p.pid) team.lineup[s] = null;
-  }
-  league.freeAgents = league.freeAgents.filter((x) => x !== p.pid);
-  p.retired = true;
-  p.retiredSeason = league.season;
-  p.lastTeam = p.team;
-  p.team = null;
-  const career = careerScore(p);
-  p.hallOfFame = p.awards.length >= 2 || career >= 900;
-  // Forget retired players nobody will look up again, so saves stay small.
-  if (!p.hallOfFame && !p.awards.length && p.seasons < 3) delete league.players[p.pid];
-  if (team || p.hallOfFame) {
-    addNews(league, `${nameOf(p)} retires after ${p.seasons} season${p.seasons === 1 ? '' : 's'}${p.hallOfFame ? ' and enters the Hall of Fame' : ''}.`, p.hallOfFame ? 'award' : team?.user ? 'user' : 'info');
-  }
-}
-
-function careerScore(p) {
-  return Object.entries(p.stats).filter(([k]) => !k.endsWith('p')).reduce((s, [, line]) => s + seasonScore(line, ratingOf(p).best), 0);
+  league.final = {
+    champion: league.playoffs.champion, runnerUp, awards,
+    userFinish: table.findIndex((r) => r.team === league.userTeam) + 1,
+  };
+  league.phase = 'complete';
 }
 
 // ---------------------------------------------------------------- views
@@ -4456,9 +4189,8 @@ function teamRating(league, team) {
   return teamStrength(team.lineup, rosterOf(league, team));
 }
 
-function seasonLeaders(league, season = league.season, n = 5) {
-  const key = `${season}`;
-  const lines = Object.values(league.players).filter((p) => p.stats[key]).map((p) => ({ p, s: p.stats[key] }));
+function seasonLeaders(league, n = 5) {
+  const lines = Object.values(league.players).filter((p) => p.stats.reg).map((p) => ({ p, s: p.stats.reg }));
   const top = (f) => lines.filter((x) => f(x.s) > 0).sort((a, b) => f(b.s) - f(a.s)).slice(0, n).map((x) => ({ pid: x.p.pid, name: nameOf(x.p), team: x.s.team, value: f(x.s) }));
   return {
     'Passing yards': top((s) => s.pass.yds ?? 0),
@@ -4473,12 +4205,9 @@ function seasonLeaders(league, season = league.season, n = 5) {
   };
 }
 
-const FIELD_POSITIONS = FIELD_POS;
-const SLOT_POSITION = SLOT_POS;
-
 // ---- ui/leagueview.js
-// Legacy league screens: new league, dashboard, roster and depth chart, draft room,
-// schedule, standings, leaders, history and free agents.
+// Season screens: new season, draft room, dashboard, roster and depth chart, schedule,
+// standings, leaders, free agents and save codes.
 
 
 
@@ -4486,13 +4215,12 @@ const SLOT_POSITION = SLOT_POS;
 
 
 const LG_TABS = [
-  ['home', 'Dashboard'], ['roster', 'Roster'], ['draft', 'Draft'], ['schedule', 'Schedule'], ['standings', 'Standings'],
-  ['stats', 'Leaders'], ['history', 'History'], ['fa', 'Free agents'], ['save', 'Save'],
+  ['home', 'Dashboard'], ['draft', 'Draft'], ['roster', 'Roster'], ['schedule', 'Schedule'], ['standings', 'Standings'],
+  ['stats', 'Leaders'], ['fa', 'Free agents'], ['save', 'Save'],
 ];
 const SWATCHES = ['#c8102e', '#1f6fd1', '#e0a100', '#2e8b3e', '#8a3fb8', '#e2561b', '#118a9c', '#41505e'];
 const PHASE_LABEL = {
-  draft: 'Fantasy draft', preseason: 'Preseason', regular: 'Regular season', playoffs: 'Playoffs',
-  offseason: 'Offseason', 'rookie-draft': 'Rookie draft',
+  draft: 'Draft', preseason: 'Preseason', regular: 'Regular season', playoffs: 'Playoffs', complete: 'Season complete',
 };
 
 const lgPlayer = (pid) => S.lg.players[pid];
@@ -4501,7 +4229,7 @@ const teamAbbr = (id) => teamById(S.lg, id)?.abbr ?? 'FA';
 const teamColor = (id) => teamById(S.lg, id)?.color ?? 'var(--ink-3)';
 
 function who(p, sub = '') {
-  return `<span class="who">${jersey(p.species, p.num || '–', 'sm')}<span style="min-width:0"><span class="who-name">${esc(nameOf(p))}</span> ${typeChips(p.species)}${sub ? `<br><span class="who-sub">${sub}</span>` : ''}</span></span>`;
+  return `<span class="who">${mon(p.species, p.num || '')}<span style="min-width:0"><span class="who-name">${esc(nameOf(p))}</span> ${typeChips(p.species)}${sub ? `<br><span class="who-sub">${sub}</span>` : ''}</span></span>`;
 }
 
 // ---------------------------------------------------------------- shell
@@ -4512,12 +4240,12 @@ function renderLeague() {
   const tabs = LG_TABS.filter(([k]) => k !== 'draft' || lg.draft);
   if (S.lgTab === 'draft' && !lg.draft) S.lgTab = 'home';
   const row = standings(lg).find((r) => r.team === me.id);
-  const views = { home: dashboard, roster, draft: draftRoom, schedule, standings: standingsView, stats: leadersView, history: historyView, fa: freeAgents, save: saveView };
+  const views = { home: dashboard, roster, draft: draftRoom, schedule, standings: standingsView, stats: leadersView, fa: freeAgents, save: saveView };
   return `<div class="stack">
     <div class="spread">
       <div class="row" style="gap:12px">
         <span class="sb-dot" style="background:${me.color};height:44px;width:8px"></span>
-        <div><div class="eyebrow">Season ${lg.season} · ${PHASE_LABEL[lg.phase]}${lg.phase === 'regular' ? ` · Week ${lg.week} of ${lg.schedule.length}` : ''}</div>
+        <div><div class="eyebrow">${PHASE_LABEL[lg.phase]}${lg.phase === 'regular' ? ` · Week ${lg.week} of ${lg.schedule.length}` : ''}</div>
         <h1>${esc(me.name)}</h1></div>
         ${lg.phase !== 'draft' ? `<span class="pill">${row.w}-${row.l}${row.t ? `-${row.t}` : ''}</span>` : ''}
       </div>
@@ -4531,7 +4259,6 @@ function renderLeague() {
 function primaryActions(lg) {
   switch (lg.phase) {
     case 'draft':
-    case 'rookie-draft':
       return S.lgTab === 'draft' ? '' : '<button class="btn primary" data-action="lg-tab" data-tab="draft">Go to the draft room</button>';
     case 'preseason':
       return '<button class="btn primary" data-action="lg-start">Start the season</button>';
@@ -4539,16 +4266,16 @@ function primaryActions(lg) {
       return `<button class="btn primary" data-action="lg-week">Play week ${lg.week}</button><button class="btn" data-action="lg-to-playoffs">Sim to playoffs</button>`;
     case 'playoffs': {
       const round = lg.playoffs.rounds[lg.playoffs.round - 1];
-      return `<button class="btn primary" data-action="lg-week">Play the ${esc(round.name)}</button>`;
+      return `<button class="btn primary" data-action="lg-week">Play the ${esc(round.name)}</button><button class="btn" data-action="lg-sim-season">Sim to the end</button>`;
     }
-    case 'offseason':
-      return '<button class="btn primary" data-action="lg-offseason">Start the offseason</button>';
+    case 'complete':
+      return `<button class="btn primary" data-action="lg-new-draft">${S.lgUi.confirmNew ? 'Click again to start a new draft' : 'Start a new draft'}</button>`;
     default:
       return '';
   }
 }
 
-// ---------------------------------------------------------------- new league
+// ---------------------------------------------------------------- new season
 function newLeagueForm() {
   const u = S.lgUi;
   u.newName ??= 'Route 1 Rumblers';
@@ -4557,23 +4284,23 @@ function newLeagueForm() {
   u.newTeams ??= 8;
   return `<div class="layout" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr)">
     <div class="panel stack">
-      <div><div class="eyebrow">Legacy mode</div><h1>Start a league</h1></div>
-      <p class="muted" style="margin:0">Draft from all 1,025 Pokémon, play a season, and keep going. Players gain experience on their real growth curve and evolve at their real level. A Magikarp you draft today can be your Gyarados pass rusher in two seasons.</p>
+      <div><div class="eyebrow">Draft season</div><h1>Draft a team</h1></div>
+      <p class="muted" style="margin:0">Every Pokémon is in the draft pool. Pick ${ROSTER_SIZE} players in a snake draft against the computer, set your depth chart, then play a full season and the playoffs for the Champion Bowl.</p>
       <div class="grid-2" style="gap:10px">
         <label class="field">Team name<input type="text" id="lg-new-name" data-action="lg-new" data-k="newName" value="${esc(u.newName)}" maxlength="32"></label>
         <label class="field">Abbreviation<input type="text" id="lg-new-abbr" data-action="lg-new" data-k="newAbbr" value="${esc(u.newAbbr)}" maxlength="4"></label>
         <label class="field">Teams in the league
           <select id="lg-new-teams" data-action="lg-new" data-k="newTeams">${[4, 6, 8, 10, 12].map((n) => `<option value="${n}"${n === u.newTeams ? ' selected' : ''}>${n} teams · ${2 * (n - 1)} games</option>`).join('')}</select></label>
-        <div class="field">Team color<div class="row" style="gap:6px">${SWATCHES.map((c) => `<button class="btn small" data-action="lg-color" data-c="${c}" aria-pressed="${c === u.newColor}" title="${c}" style="width:30px;height:30px;padding:0;background:${c};border:${c === u.newColor ? '3px solid var(--ink)' : '1px solid var(--line)'}"></button>`).join('')}</div></div>
+        <div class="field">Team color<div class="row" style="gap:6px">${SWATCHES.map((c) => `<button class="btn small" data-action="lg-color" data-c="${c}" aria-pressed="${c === u.newColor}" aria-label="Color ${c}" style="width:30px;height:30px;padding:0;background:${c};border:${c === u.newColor ? '3px solid var(--ink)' : '1px solid var(--line)'}"></button>`).join('')}</div></div>
       </div>
-      <div class="row"><button class="btn primary big" data-action="lg-create">Create league and draft</button></div>
-      <p class="faint small" style="margin:0">Your league saves in this browser. Use the Save tab to copy a save code you can load anywhere.</p>
+      <div class="row"><button class="btn primary big" data-action="lg-create">Start the draft</button></div>
+      <p class="faint small" style="margin:0">Your season saves in this browser. The Save tab gives you a save code to load it anywhere.</p>
     </div>
     <div class="panel stack">
-      <div><div class="eyebrow">Have a save code?</div><h2>Load a league</h2></div>
+      <div><div class="eyebrow">Have a save code?</div><h2>Load a season</h2></div>
       <textarea id="lg-load-code" data-action="lg-load-code" placeholder="Paste a save code here">${esc(S.lgUi.loadCode)}</textarea>
-      <div><button class="btn" data-action="lg-load">Load league</button></div>
-      <div class="card-section small muted">The other teams: ${TEAM_POOL.slice(0, 8).map((t) => esc(t.name)).join(', ')}, and more.</div>
+      <div><button class="btn" data-action="lg-load">Load season</button></div>
+      <div class="card-section small muted">Your rivals: ${TEAM_POOL.slice(0, 8).map((t) => esc(t.name)).join(', ')}, and more.</div>
     </div>
   </div>`;
 }
@@ -4587,10 +4314,10 @@ function dashboard() {
   const last = lastUserGame(lg);
   return `<div class="layout" style="grid-template-columns:minmax(0,1fr) minmax(300px,420px)">
     <div class="stack">
-      ${phaseCard(lg)}
+      ${lg.final ? finalCard(lg) : phaseCard(lg)}
       ${next ? matchupCard(next) : ''}
       ${last ? lastGameCard(last) : ''}
-      <div class="panel flush"><div class="panel-head"><h3>League news</h3></div><div class="news">${lg.news.slice(0, 18).map((n) => `<div class="news-item ${n.kind}"><span class="when">S${n.season}${n.week && n.phase === 'regular' ? ` W${n.week}` : ''}</span><span class="txt">${esc(n.text)}</span></div>`).join('')}</div></div>
+      <div class="panel flush"><div class="panel-head"><h3>League news</h3></div><div class="news">${lg.news.slice(0, 18).map((n) => `<div class="news-item ${n.kind}"><span class="when">${n.phase === 'regular' && n.week ? `Wk ${n.week}` : esc(PHASE_LABEL[n.phase] ?? '').split(' ')[0]}</span><span class="txt">${esc(n.text)}</span></div>`).join('')}</div></div>
     </div>
     <div class="stack">
       <div class="panel flush"><div class="panel-head"><h3>Standings</h3><button class="btn small ghost" data-action="lg-tab" data-tab="standings">Full table</button></div>
@@ -4604,15 +4331,25 @@ function dashboard() {
 
 function phaseCard(lg) {
   const text = {
-    draft: 'Every team drafts its roster from the full Pokédex. Higher levels play better now; potential shows what a player becomes at level 100 in its final form.',
-    preseason: 'Check your depth chart and play style, then start the season.',
-    regular: 'Play one week at a time, or sim to the playoffs. Starters gain experience every game and evolve when they reach their evolution level.',
+    draft: 'Every team drafts its roster from the full Pokédex in a snake draft. Each pick shows its best position and overall rating.',
+    preseason: 'Check your depth chart and game plan, then start the season.',
+    regular: 'Play one week at a time, or sim to the playoffs. Starters sometimes faint and miss a few weeks, so your backups matter.',
     playoffs: 'The top four teams play the Elite Four Round. The two winners meet in the Champion Bowl.',
-    offseason: 'The season is over. The offseason brings retirements and a rookie draft. Worst record picks first.',
-    'rookie-draft': 'Three rounds of rookies. They start at low levels with high potential.',
   }[lg.phase];
   return `<div class="panel"><div class="eyebrow">${PHASE_LABEL[lg.phase]}</div><p style="margin:6px 0 0">${text}</p></div>`;
 }
+
+function finalCard(lg) {
+  const f = lg.final;
+  const mine = f.champion === lg.userTeam;
+  return `<div class="panel stack" style="border-top:4px solid ${teamColor(f.champion)}">
+    <div class="eyebrow">Champion Bowl</div>
+    <h2>${mine ? 'You won the Champion Bowl!' : `${esc(teamName(f.champion))} are the champions`}</h2>
+    <div class="small muted">Runner-up: ${esc(teamName(f.runnerUp))}. Your regular-season finish: ${ordinalPlace(f.userFinish)} of ${lg.teams.length}.</div>
+    <div class="tiles">${Object.entries(f.awards).map(([k, a]) => `<div class="tile clickable" data-action="lg-player" data-pid="${a.pid}"><div class="k">${esc(k)}</div><div class="v" style="font-size:20px">${esc(a.name)}</div><div class="s">${esc(teamName(a.team))}</div></div>`).join('')}</div>
+  </div>`;
+}
+const ordinalPlace = (n) => `${n}${n % 10 === 1 && n % 100 !== 11 ? 'st' : n % 10 === 2 && n % 100 !== 12 ? 'nd' : n % 10 === 3 && n % 100 !== 13 ? 'rd' : 'th'}`;
 
 function nextUserGame(lg) {
   if (lg.phase === 'regular') {
@@ -4658,13 +4395,13 @@ function lastGameCard(g) {
 
 function teamSummaryCard(team) {
   const lg = S.lg;
-  const r = teamRating(lg, team);
   const roster = rosterOf(lg, team);
+  if (roster.length < SLOTS.length) return `<div class="panel stack"><h3>Your team</h3><p class="small muted" style="margin:0">${roster.length} of ${ROSTER_SIZE} players drafted.</p></div>`;
+  const r = teamRating(lg, team);
   const hurt = roster.filter((p) => p.injury);
-  const avgLv = Math.round(roster.reduce((s, p) => s + p.level, 0) / Math.max(1, roster.length));
   return `<div class="panel stack"><div class="spread"><h3>Your team</h3><button class="btn small ghost" data-action="lg-tab" data-tab="roster">Roster</button></div>
     <div class="tiles"><div class="tile"><div class="k">Overall</div><div class="v">${r.ovr}</div><div class="s">OFF ${r.off} · DEF ${r.def}</div></div>
-    <div class="tile"><div class="k">Roster</div><div class="v">${roster.length}</div><div class="s">Average Lv ${avgLv}</div></div></div>
+    <div class="tile"><div class="k">Roster</div><div class="v">${roster.length}</div><div class="s">${hurt.length ? `${hurt.length} fainted` : 'All healthy'}</div></div></div>
     ${hurt.length ? `<div class="small"><span class="pill warn">Fainted</span> ${hurt.map((p) => `${esc(nameOf(p))} (${p.injury} wk)`).join(', ')}</div>` : ''}</div>`;
 }
 
@@ -4672,22 +4409,23 @@ function teamSummaryCard(team) {
 function roster() {
   const lg = S.lg;
   const me = userTeam(lg);
-  setLineup(lg, me);
   const players = rosterOf(lg, me);
-  const slotOf = new Map(Object.entries(me.lineup).map(([s, pid]) => [pid, s]));
+  if (!players.length) return '<div class="panel empty">Your roster fills up as you draft.</div>';
+  const full = players.length >= SLOTS.length;
+  if (full) setLineup(lg, me);
+  const slotOf = new Map(full ? Object.entries(me.lineup).map(([s, pid]) => [pid, s]) : []);
   const ordered = [...players].sort((a, b) => {
     const sa = slotOf.has(a.pid) ? SLOTS.findIndex((s) => s.id === slotOf.get(a.pid)) : 99;
     const sb = slotOf.has(b.pid) ? SLOTS.findIndex((s) => s.id === slotOf.get(b.pid)) : 99;
     return sa - sb || playerValue(b) - playerValue(a);
   });
-  const key = `${lg.season}`;
   return `<div class="layout">
     <div class="stack">
       <div class="panel stack">
         <div class="spread"><h3>Depth chart</h3>
           <label class="row small" style="gap:6px"><input type="checkbox" id="lg-auto" data-action="lg-auto"${me.autoLineup ? ' checked' : ''}> Auto</label></div>
         <p class="faint small" style="margin:0">${me.autoLineup ? 'The coach picks the best healthy lineup before every game. Change any slot to take over.' : 'Your picks stay put. Fainted players are replaced for that game only.'}</p>
-        ${SLOT_GROUPS.map((g) => `<div><div class="group-label">${g.name}</div>${g.slots.map((slot) => depthRow(me, players, slot)).join('')}</div>`).join('')}
+        ${full ? SLOT_GROUPS.map((g) => `<div><div class="group-label">${g.name}</div>${g.slots.map((slot) => depthRow(me, players, slot)).join('')}</div>`).join('') : '<p class="small muted">The depth chart opens when you have 24 players.</p>'}
       </div>
       <div class="panel stack"><h3>Game plan</h3>
         <label class="field">Play style<select id="lg-style" data-action="lg-strat" data-k="runBias">${[[0.8, 'Run first'], [0, 'Balanced'], [-0.8, 'Air raid']].map(([v, l]) => `<option value="${v}"${Number(me.strategy.runBias) === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
@@ -4697,15 +4435,15 @@ function roster() {
     </div>
     <div class="panel flush" style="min-width:0">
       <div class="panel-head"><h3>Roster</h3><span class="faint small">${players.length} of ${ROSTER_MAX} · click a player for the full card</span></div>
-      <div class="table-wrap"><table class="data"><thead><tr><th class="l">Player</th><th class="l">Slot</th><th>Lv</th><th>Pos</th><th>OVR</th><th>POT</th><th>Seasons</th><th class="l">This season</th></tr></thead><tbody>
+      <div class="table-wrap"><table class="data"><thead><tr><th class="l">Player</th><th class="l">Slot</th><th>Pos</th><th>OVR</th><th class="l">This season</th></tr></thead><tbody>
       ${ordered.map((p) => {
         const r = ratingOf(p);
         const slot = slotOf.get(p.pid);
         const pos = slot ? SLOT_POS[slot] : r.best;
-        return `<tr class="clickable" data-action="lg-player" data-pid="${p.pid}"><td class="l">${who(p, p.rookieSeason === lg.season ? 'Rookie' : '')}</td>
+        return `<tr class="clickable" data-action="lg-player" data-pid="${p.pid}"><td class="l">${who(p)}</td>
           <td class="l">${slot ? `<b>${slot}</b>` : '<span class="faint">Bench</span>'}${p.injury ? ` <span class="pill warn">Out ${p.injury}</span>` : ''}</td>
-          <td>${p.level}</td><td>${pos}</td><td>${ovrBadge(r.ovr[pos])}</td><td class="faint">${potentials(p)[pos]}</td><td>${p.seasons}</td>
-          <td class="l small muted">${statSummary(p.stats[key])}</td></tr>`;
+          <td>${pos}</td><td>${ovrBadge(r.ovr[pos])}</td>
+          <td class="l small muted">${statSummary(p.stats.reg)}</td></tr>`;
       }).join('')}
       </tbody></table></div>
     </div>
@@ -4718,7 +4456,7 @@ function depthRow(team, players, slot) {
   const options = [...players].sort((a, b) => ratingOf(b).ovr[pos] - ratingOf(a).ovr[pos]);
   return `<div class="row" style="gap:8px;flex-wrap:nowrap;padding:2px 0">
     <span style="width:38px;font:700 12px/1 var(--font-head);letter-spacing:.08em;color:var(--ink-3)">${slot}</span>
-    <select id="lg-slot-${slot}" data-action="lg-assign" data-slot="${slot}" style="flex:1;min-width:0">
+    <select id="lg-slot-${slot}" data-action="lg-assign" data-slot="${slot}" aria-label="${POSITIONS[pos].name} ${slot}" style="flex:1;min-width:0">
       ${options.map((p) => `<option value="${p.pid}"${p.pid === cur ? ' selected' : ''}${p.injury ? ' disabled' : ''}>${esc(nameOf(p))} · ${ratingOf(p).ovr[pos]}${p.injury ? ' (fainted)' : ''}</option>`).join('')}
     </select>
     ${cur ? ovrBadge(ratingOf(lgPlayer(cur)).ovr[pos]) : ''}
@@ -4751,16 +4489,17 @@ function draftRoom() {
     .map((p) => {
       const r = ratingOf(p);
       const pos = u.draftPos === 'all' ? r.best : u.draftPos;
-      return { p, r, pos, ovr: r.ovr[pos], pot: potentials(p)[pos] };
+      return { p, r, pos, ovr: r.ovr[pos] };
     })
-    .sort((a, b) => (d.kind === 'rookie' ? b.pot - a.pot : 0) || b.ovr - a.ovr || b.pot - a.pot)
+    .sort((a, b) => b.ovr - a.ovr || a.p.species - b.p.species)
     .slice(0, 80);
   const recent = d.picks.slice(Math.max(0, d.current - 14), d.current).reverse();
   const mine = d.picks.filter((p) => p.team === lg.userTeam && p.pid);
   const needs = draftNeeds(lg);
+  const keys = u.draftPos === 'all' ? ['SPD', 'STR', 'AWR'] : Object.entries(POSITIONS[u.draftPos].w).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k]) => k);
   return `<div class="stack">
     <div class="panel spread" style="border-left:6px solid ${pick ? teamColor(pick.team) : 'var(--line)'}">
-      <div><div class="eyebrow">${d.kind === 'fantasy' ? 'Fantasy draft' : 'Rookie draft'} · Round ${pick?.round ?? d.rounds} of ${d.rounds} · Pick ${Math.min(d.current + 1, d.picks.length)} of ${d.picks.length}</div>
+      <div><div class="eyebrow">Round ${pick?.round ?? d.rounds} of ${d.rounds} · Pick ${Math.min(d.current + 1, d.picks.length)} of ${d.picks.length}</div>
         <h2>${pick ? (onClock ? 'You are on the clock' : `${esc(teamName(pick.team))} are picking`) : 'The draft is over'}</h2></div>
       <div class="row">
         ${onClock && recommend ? `<button class="btn primary" data-action="lg-draft" data-pid="${recommend}">Draft ${esc(nameOf(lgPlayer(recommend)))}</button>` : ''}
@@ -4771,21 +4510,21 @@ function draftRoom() {
     <div class="layout" style="grid-template-columns:minmax(0,1fr) minmax(260px,330px)">
       <div class="panel flush" style="min-width:0">
         <div class="panel-head">
-          <div class="row"><input type="search" id="lg-draft-q" data-action="lg-draft-q" placeholder="Search the pool" value="${esc(u.draftQ)}">
-          <select id="lg-draft-pos" data-action="lg-draft-pos"><option value="all">Best position</option>${POS_KEYS.map((k) => `<option value="${k}"${u.draftPos === k ? ' selected' : ''}>${POSITIONS[k].name}</option>`).join('')}</select></div>
+          <div class="row"><input type="search" id="lg-draft-q" data-action="lg-draft-q" placeholder="Search the pool" value="${esc(u.draftQ)}" aria-label="Search the draft pool">
+          <select id="lg-draft-pos" data-action="lg-draft-pos" aria-label="Position"><option value="all">Best position</option>${POS_KEYS.map((k) => `<option value="${k}"${u.draftPos === k ? ' selected' : ''}>${POSITIONS[k].name}</option>`).join('')}</select></div>
           <span class="faint small">${d.pool.length} available · top 80 shown</span>
         </div>
-        <div class="table-wrap"><table class="data"><thead><tr><th class="l">Player</th><th>Lv</th><th>Pos</th><th>OVR</th><th>POT</th><th>SPD</th><th>STR</th><th>AWR</th><th></th></tr></thead><tbody>
-        ${pool.map(({ p, r, pos, ovr, pot }) => `<tr><td class="l clickable" data-action="lg-player" data-pid="${p.pid}">${who(p, DEX.get(p.species).genus)}</td><td>${p.level}</td><td>${pos}</td><td>${ovrBadge(ovr)}</td><td><b>${pot}</b></td><td>${r.attrs.SPD}</td><td>${r.attrs.STR}</td><td>${r.attrs.AWR}</td>
+        <div class="table-wrap"><table class="data"><thead><tr><th class="l">Player</th><th>Pos</th><th>OVR</th>${keys.map((k) => `<th>${k}</th>`).join('')}<th></th></tr></thead><tbody>
+        ${pool.map(({ p, r, pos, ovr }) => `<tr><td class="l clickable" data-action="lg-player" data-pid="${p.pid}">${who(p, esc(DEX.get(p.species).genus))}</td><td>${pos}</td><td>${ovrBadge(ovr)}</td>${keys.map((k) => `<td>${r.attrs[k]}</td>`).join('')}
           <td>${onClock ? `<button class="btn small primary" data-action="lg-draft" data-pid="${p.pid}">Draft</button>` : ''}</td></tr>`).join('')}
         </tbody></table></div>
       </div>
       <div class="stack">
-        <div class="panel"><h3>Your needs</h3><p class="small muted" style="margin:6px 0 0">${needs.length ? needs.map(([pos, n]) => `${n} ${pos}`).join(' · ') : 'Every starting slot is filled. Draft for depth and potential.'}</p></div>
-        <div class="panel flush"><div class="panel-head"><h3>Your picks</h3><span class="faint small">${mine.length}</span></div>
-          <div class="news">${mine.slice().reverse().map((pk) => `<div class="news-item"><span class="when">R${pk.round}</span><span class="txt">${esc(nameOf(lgPlayer(pk.pid)))} · Lv ${lgPlayer(pk.pid).level}</span></div>`).join('') || '<div class="empty small">No picks yet.</div>'}</div></div>
+        <div class="panel"><h3>Your needs</h3><p class="small muted" style="margin:6px 0 0">${needs.length ? needs.map(([pos, n]) => `${n} ${pos}`).join(' · ') : 'Every starting slot is filled. Draft backups for when players faint.'}</p></div>
+        <div class="panel flush"><div class="panel-head"><h3>Your picks</h3><span class="faint small">${mine.length} of ${d.rounds}</span></div>
+          <div class="news">${mine.slice().reverse().map((pk) => `<div class="news-item"><span class="when">Rd ${pk.round}</span><span class="txt">${esc(nameOf(lgPlayer(pk.pid)))} · ${ratingOf(lgPlayer(pk.pid)).best}</span></div>`).join('') || '<div class="empty small">No picks yet.</div>'}</div></div>
         <div class="panel flush"><div class="panel-head"><h3>Recent picks</h3></div>
-          <div class="news">${recent.map((pk) => `<div class="news-item"><span class="when">${esc(teamAbbr(pk.team))}</span><span class="txt">${esc(nameOf(lgPlayer(pk.pid)))} · Lv ${lgPlayer(pk.pid).level}</span></div>`).join('') || '<div class="empty small">No picks yet.</div>'}</div></div>
+          <div class="news">${recent.map((pk) => `<div class="news-item"><span class="when">${esc(teamAbbr(pk.team))}</span><span class="txt">${esc(nameOf(lgPlayer(pk.pid)))} · ${ratingOf(lgPlayer(pk.pid)).best}</span></div>`).join('') || '<div class="empty small">No picks yet.</div>'}</div></div>
       </div>
     </div>
   </div>`;
@@ -4806,7 +4545,6 @@ function draftNeeds(lg) {
 // ---------------------------------------------------------------- schedule
 function schedule() {
   const lg = S.lg;
-  const weeks = lg.schedule;
   const po = lg.playoffs;
   const gameRow = (g) => {
     const res = g.result;
@@ -4820,7 +4558,7 @@ function schedule() {
   return `<div class="stack">
     ${po ? `<div class="panel flush"><div class="panel-head"><h3>Playoffs</h3>${po.champion ? `<span class="pill flag">Champion: ${esc(teamName(po.champion))}</span>` : ''}</div>
       <div class="table-wrap"><table class="data"><tbody>${po.rounds.filter(Boolean).map((r) => `<tr><td class="l" colspan="6"><b>${esc(r.name)}</b></td></tr>${r.games.map(gameRow).join('')}`).join('')}</tbody></table></div></div>` : ''}
-    ${weeks.map((w) => `<div class="panel flush"><div class="panel-head"><h3>Week ${w.week}</h3>${w.week === lg.week && lg.phase === 'regular' ? '<span class="pill flag">Next up</span>' : ''}</div>
+    ${lg.schedule.map((w) => `<div class="panel flush"><div class="panel-head"><h3>Week ${w.week}</h3>${w.week === lg.week && lg.phase === 'regular' ? '<span class="pill flag">Next up</span>' : ''}</div>
       <div class="table-wrap"><table class="data"><tbody>${w.games.map(gameRow).join('')}</tbody></table></div></div>`).join('') || '<div class="panel empty">The schedule appears after the draft.</div>'}
   </div>`;
 }
@@ -4832,7 +4570,7 @@ function standingsView() {
   return `<div class="panel flush"><div class="table-wrap"><table class="data"><thead><tr><th class="l">Team</th><th>W</th><th>L</th><th>T</th><th>Pct</th><th>PF</th><th>PA</th><th>Diff</th><th>Streak</th><th>OVR</th><th>OFF</th><th>DEF</th></tr></thead><tbody>
     ${rows.map((r, i) => {
       const t = teamById(lg, r.team);
-      const tr = teamRating(lg, t);
+      const tr = t.roster.length >= SLOTS.length ? teamRating(lg, t) : { ovr: '–', off: '–', def: '–' };
       return `<tr class="${t.user ? 'me' : ''}"><td class="l">${i + 1}. <span class="tm-tag" style="background:${t.color}"></span>${esc(t.name)}</td><td>${r.w}</td><td>${r.l}</td><td>${r.t}</td><td>${r.pct.toFixed(3).replace(/^0/, '')}</td><td>${r.pf}</td><td>${r.pa}</td><td>${r.pf - r.pa > 0 ? '+' : ''}${r.pf - r.pa}</td><td>${r.streak}</td><td>${tr.ovr}</td><td>${tr.off}</td><td>${tr.def}</td></tr>`;
     }).join('')}
   </tbody></table></div><p class="faint small" style="padding:0 14px">Top four make the playoffs. Ties break on point differential, then points scored.</p></div>`;
@@ -4841,32 +4579,12 @@ function standingsView() {
 // ---------------------------------------------------------------- leaders
 function leadersView() {
   const lg = S.lg;
-  const seasons = [lg.season, ...lg.history.map((h) => h.season)].filter((v, i, a) => a.indexOf(v) === i);
-  const season = S.lgUi.leaderSeason ?? lg.season;
-  const leaders = seasonLeaders(lg, season, 5);
-  return `<div class="stack">
-    <div class="row"><label class="field">Season<select id="lg-leader-season" data-action="lg-leader-season">${seasons.map((s) => `<option value="${s}"${s === season ? ' selected' : ''}>Season ${s}</option>`).join('')}</select></label></div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px">
+  const leaders = seasonLeaders(lg, 5);
+  return `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px">
     ${Object.entries(leaders).map(([cat, list]) => `<div class="panel flush"><div class="panel-head"><h3>${cat}</h3></div>
       ${list.length ? `<table class="data"><tbody>${list.map((x, i) => `<tr class="clickable${teamById(lg, x.team)?.user ? ' me' : ''}" data-action="lg-player" data-pid="${x.pid}"><td class="l">${i + 1}. <span class="tm-tag" style="background:${teamColor(x.team)}"></span>${esc(x.name)} <span class="faint">${esc(teamAbbr(x.team))}</span></td><td><b>${x.value}</b></td></tr>`).join('')}</tbody></table>` : '<div class="empty small">No games yet.</div>'}</div>`).join('')}
-    </div></div>`;
-}
-
-// ---------------------------------------------------------------- history
-function historyView() {
-  const lg = S.lg;
-  const hof = Object.values(lg.players).filter((p) => p.hallOfFame).sort((a, b) => careerScore(b) - careerScore(a));
-  return `<div class="stack">
-    <div class="panel flush"><div class="panel-head"><h3>Champions</h3></div>
-      ${lg.history.length ? `<div class="table-wrap"><table class="data"><thead><tr><th class="l">Season</th><th class="l">Champion</th><th class="l">Runner-up</th><th>Your finish</th><th class="l">MVP</th><th class="l">Defensive POY</th><th class="l">Rookie of the Year</th></tr></thead><tbody>
-      ${lg.history.map((h) => `<tr><td class="l">${h.season}</td><td class="l"><span class="tm-tag" style="background:${teamColor(h.champion)}"></span><b>${esc(teamName(h.champion))}</b></td><td class="l">${esc(teamName(h.runnerUp))}</td><td>${h.userFinish}</td>
-        <td class="l">${award(h, 'MVP')}</td><td class="l">${award(h, 'Defensive Player of the Year')}</td><td class="l">${award(h, 'Rookie of the Year')}</td></tr>`).join('')}
-      </tbody></table></div>` : '<div class="empty">Finish a season to start the history book.</div>'}</div>
-    <div class="panel flush"><div class="panel-head"><h3>Hall of Fame</h3><span class="faint small">Two or more awards, or a big career</span></div>
-      ${hof.length ? `<div class="table-wrap"><table class="data"><thead><tr><th class="l">Player</th><th class="l">Last team</th><th>Seasons</th><th class="l">Awards</th></tr></thead><tbody>${hof.map((p) => `<tr class="clickable" data-action="lg-player" data-pid="${p.pid}"><td class="l">${who(p)}</td><td class="l">${esc(teamName(p.lastTeam))}</td><td>${p.seasons}</td><td class="l small">${p.awards.map((a) => `S${a.season} ${esc(a.award)}`).join(', ')}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">No one has retired into the Hall of Fame yet.</div>'}</div>
   </div>`;
 }
-const award = (h, k) => (h.awards[k] ? `${esc(h.awards[k].name)} <span class="faint">${esc(teamAbbr(h.awards[k].team))}</span>` : '');
 
 // ---------------------------------------------------------------- free agents
 function freeAgents() {
@@ -4874,23 +4592,24 @@ function freeAgents() {
   const u = S.lgUi;
   const me = userTeam(lg);
   const full = me.roster.length >= ROSTER_MAX;
+  const drafting = !!lg.draft;
   const q = u.faQ.trim().toLowerCase();
   const list = lg.freeAgents
     .map((pid) => lgPlayer(pid))
-    .filter((p) => p && !p.retired && (!q || nameOf(p).toLowerCase().includes(q)) && !(lg.draft && lg.draft.pool.includes(p.pid)))
+    .filter((p) => p && (!q || nameOf(p).toLowerCase().includes(q)))
     .map((p) => {
       const r = ratingOf(p);
       const pos = u.faPos === 'all' ? r.best : u.faPos;
-      return { p, r, pos, ovr: r.ovr[pos], pot: potentials(p)[pos] };
+      return { p, pos, ovr: r.ovr[pos] };
     })
     .sort((a, b) => b.ovr - a.ovr)
     .slice(0, 60);
   return `<div class="panel flush">
-    <div class="panel-head"><div class="row"><input type="search" id="lg-fa-q" data-action="lg-fa-q" placeholder="Search free agents" value="${esc(u.faQ)}">
-      <select id="lg-fa-pos" data-action="lg-fa-pos"><option value="all">Best position</option>${FIELD_POS.concat(['K', 'P']).map((k) => `<option value="${k}"${u.faPos === k ? ' selected' : ''}>${POSITIONS[k].name}</option>`).join('')}</select></div>
-      <span class="faint small">${full ? `Your roster is full (${ROSTER_MAX}). Release someone to sign.` : `${me.roster.length} of ${ROSTER_MAX} roster spots used`}</span></div>
-    <div class="table-wrap"><table class="data"><thead><tr><th class="l">Player</th><th>Lv</th><th>Pos</th><th>OVR</th><th>POT</th><th></th></tr></thead><tbody>
-    ${list.map(({ p, pos, ovr, pot }) => `<tr><td class="l clickable" data-action="lg-player" data-pid="${p.pid}">${who(p)}</td><td>${p.level}</td><td>${pos}</td><td>${ovrBadge(ovr)}</td><td>${pot}</td><td><button class="btn small" data-action="lg-sign" data-pid="${p.pid}"${full ? ' disabled' : ''}>Sign</button></td></tr>`).join('')}
+    <div class="panel-head"><div class="row"><input type="search" id="lg-fa-q" data-action="lg-fa-q" placeholder="Search free agents" value="${esc(u.faQ)}" aria-label="Search free agents">
+      <select id="lg-fa-pos" data-action="lg-fa-pos" aria-label="Position"><option value="all">Best position</option>${FIELD_POS.concat(['K', 'P']).map((k) => `<option value="${k}"${u.faPos === k ? ' selected' : ''}>${POSITIONS[k].name}</option>`).join('')}</select></div>
+      <span class="faint small">${drafting ? 'Free agency opens after the draft.' : full ? `Your roster is full (${ROSTER_MAX}). Release someone to sign.` : `${me.roster.length} of ${ROSTER_MAX} roster spots used`}</span></div>
+    <div class="table-wrap"><table class="data"><thead><tr><th class="l">Player</th><th>Pos</th><th>OVR</th><th></th></tr></thead><tbody>
+    ${list.map(({ p, pos, ovr }) => `<tr><td class="l clickable" data-action="lg-player" data-pid="${p.pid}">${who(p)}</td><td>${pos}</td><td>${ovrBadge(ovr)}</td><td><button class="btn small" data-action="lg-sign" data-pid="${p.pid}"${full || drafting ? ' disabled' : ''}>Sign</button></td></tr>`).join('')}
     </tbody></table></div></div>`;
 }
 
@@ -4899,13 +4618,13 @@ function saveView() {
   const u = S.lgUi;
   return `<div class="grid-2">
     <div class="panel stack"><h3>Save code</h3>
-      <p class="small muted" style="margin:0">The league saves in this browser after every action. To move it, copy the save code and paste it into "Load a league" on another device.</p>
+      <p class="small muted" style="margin:0">The season saves in this browser after every action. To move it, copy the save code and paste it into "Load a season" on another device.</p>
       <div class="row"><button class="btn" data-action="lg-copy">Copy save code</button><button class="btn ghost" data-action="lg-show-code">Show code</button></div>
-      ${u.saveCode ? `<textarea id="lg-save-code" readonly>${esc(u.saveCode)}</textarea>` : ''}
+      ${u.saveCode ? `<textarea id="lg-save-code" readonly aria-label="Save code">${esc(u.saveCode)}</textarea>` : ''}
     </div>
     <div class="panel stack"><h3>Start over</h3>
-      <p class="small muted" style="margin:0">Delete this league from this browser. Copy the save code first if you want to keep it.</p>
-      <div><button class="btn danger" data-action="lg-delete">${u.confirmDelete ? 'Click again to delete the league' : 'Delete league'}</button></div>
+      <p class="small muted" style="margin:0">Delete this season from this browser and start a new draft. Copy the save code first if you want to keep it.</p>
+      <div><button class="btn danger" data-action="lg-delete">${u.confirmDelete ? 'Click again to delete the season' : 'Delete season'}</button></div>
     </div>
   </div>`;
 }
@@ -4959,24 +4678,22 @@ function playerModal(m) {
   if (!p) return '';
   const me = userTeam(lg);
   const mine = p.team === me.id;
-  const isFa = !p.team && !p.retired && !(lg.draft && lg.draft.pool.includes(p.pid));
+  const isFa = !p.team && !lg.draft;
+  const onClock = lg.draft && currentPick(lg)?.team === lg.userTeam && lg.draft.pool.includes(p.pid);
   const slot = mine ? Object.entries(me.lineup).find(([, pid]) => pid === p.pid)?.[0] : null;
   const pos = slot ? SLOT_POS[slot] : null;
-  const sp = DEX.get(p.species);
-  const next = p.level < 100 ? expForLevel(sp.growth, p.level + 1) : null;
-  const lineage = p.lineage.map((id) => DEX.get(id).name).join(' → ');
-  const seasons = Object.keys(p.stats).sort();
   const actions = [
-    mine ? `<button class="btn small danger" data-action="lg-release" data-pid="${p.pid}">${m.confirm ? 'Click again to release' : 'Release'}</button>` : '',
+    onClock ? `<button class="btn small primary" data-action="lg-draft" data-pid="${p.pid}">Draft</button>` : '',
+    mine && !lg.draft ? `<button class="btn small danger" data-action="lg-release" data-pid="${p.pid}">${m.confirm ? 'Click again to release' : 'Release'}</button>` : '',
     isFa ? `<button class="btn small primary" data-action="lg-sign" data-pid="${p.pid}">Sign</button>` : '',
   ].join('');
-  const extra = `<div class="small muted">${p.retired ? `Retired after season ${p.retiredSeason}${p.hallOfFame ? ' · Hall of Fame' : ''}` : `${esc(teamName(p.team))}${slot ? ` · starts at ${slot}` : ''}`}${p.injury ? ` · <span class="pill warn">Fainted, out ${p.injury} wk</span>` : ''}</div>
-    <div class="small muted">${p.draft ? `Drafted season ${p.draft.season}, round ${p.draft.round} (${p.draft.kind}) · ` : ''}${p.seasons} season${p.seasons === 1 ? '' : 's'} played${lineage.includes('→') ? ` · ${esc(lineage)}` : ''}</div>
-    ${next ? `<div class="small muted">Experience ${p.exp.toLocaleString()} · next level at ${next.toLocaleString()} (${esc(sp.growth.replace(/-/g, ' '))} growth)</div>` : ''}
-    ${p.awards.length ? `<div class="row">${p.awards.map((a) => `<span class="pill flag">S${a.season} ${esc(a.award)}</span>`).join('')}</div>` : ''}
-    ${seasons.length ? `<div class="table-wrap"><table class="data"><thead><tr><th class="l">Season</th><th>GP</th><th>Pass</th><th>TD</th><th>Rush</th><th>Rec</th><th>Tkl</th><th>Sck</th><th>Int</th></tr></thead><tbody>${seasons.map((k) => {
+  const lines = [['reg', 'Regular season'], ['post', 'Playoffs']].filter(([k]) => p.stats[k]);
+  const where = p.team ? teamName(p.team) : lg.draft ? 'In the draft pool' : 'Free agent';
+  const extra = `<div class="small muted">${esc(where)}${slot ? ` · starts at ${slot}` : ''}${p.draft ? ` · drafted round ${p.draft.round}, pick ${p.draft.pick}` : ''}${p.injury ? ` · <span class="pill warn">Fainted, out ${p.injury} wk</span>` : ''}</div>
+    ${p.awards.length ? `<div class="row">${p.awards.map((a) => `<span class="pill flag">${esc(a)}</span>`).join('')}</div>` : ''}
+    ${lines.length ? `<div class="table-wrap"><table class="data"><thead><tr><th class="l"></th><th>GP</th><th>Pass</th><th>TD</th><th>Rush</th><th>Rec</th><th>Tkl</th><th>Sck</th><th>Int</th></tr></thead><tbody>${lines.map(([k, label]) => {
       const s = p.stats[k];
-      return `<tr><td class="l">${k.endsWith('p') ? `S${k.slice(0, -1)} playoffs` : `S${k}`} <span class="faint">${esc(teamAbbr(s.team))}</span></td><td>${s.gp}</td><td>${s.pass.yds ?? 0}</td><td>${(s.pass.td ?? 0) + (s.rush.td ?? 0) + (s.rec.td ?? 0)}</td><td>${s.rush.yds ?? 0}</td><td>${s.rec.yds ?? 0}</td><td>${s.def.tkl ?? 0}</td><td>${s.def.sck ?? 0}</td><td>${s.def.int ?? 0}</td></tr>`;
+      return `<tr><td class="l">${label}</td><td>${s.gp}</td><td>${s.pass.yds ?? 0}</td><td>${(s.pass.td ?? 0) + (s.rush.td ?? 0) + (s.rec.td ?? 0)}</td><td>${s.rush.yds ?? 0}</td><td>${s.rec.yds ?? 0}</td><td>${s.def.tkl ?? 0}</td><td>${s.def.sck ?? 0}</td><td>${s.def.int ?? 0}</td></tr>`;
     }).join('')}</tbody></table></div>` : ''}`;
   return `<div class="modal-back" data-action="modal-close"><div class="modal" data-stop="1" role="dialog" aria-label="Player card" style="width:min(640px,100%)">
     <div class="spread"><span class="eyebrow">Player card</span><button class="btn small" data-action="modal-close">Close</button></div>
@@ -4988,7 +4705,7 @@ function playerModal(m) {
 function handleLeague(action, el) {
   const lg = S.lg;
   const u = S.lgUi;
-  const done = () => { if (!saveLeague()) toast('This browser would not save the league. Copy a save code from the Save tab.'); return true; };
+  const done = () => { if (!saveLeague()) toast('This browser would not save the season. Copy a save code from the Save tab.'); return true; };
   try {
     switch (action) {
       case 'lg-tab': S.lgTab = el.dataset.tab; return true;
@@ -5007,13 +4724,18 @@ function handleLeague(action, el) {
         S.lg = data;
         u.loadCode = '';
         S.lgTab = 'home';
-        toast('League loaded.');
+        toast('Season loaded.');
         return done();
       }
-      case 'lg-draft': draftPlayer(lg, el.dataset.pid); if (lg.draft) simToUserPick(lg); if (!lg.draft) S.lgTab = 'home'; return done();
+      case 'lg-draft': {
+        draftPlayer(lg, el.dataset.pid);
+        S.modal = null;
+        if (lg.draft) simToUserPick(lg);
+        if (!lg.draft) S.lgTab = 'home';
+        return done();
+      }
       case 'lg-sim-pick': simToUserPick(lg); return done();
       case 'lg-auto-draft': autoDraftRest(lg); S.lgTab = 'home'; return done();
-      case 'lg-ai-pick': aiPick(lg); return done();
       case 'lg-draft-q': u.draftQ = el.value; return true;
       case 'lg-draft-pos': u.draftPos = el.value; return true;
       case 'lg-start': startSeason(lg); return done();
@@ -5022,14 +4744,22 @@ function handleLeague(action, el) {
         playWeek(lg);
         const mine = Object.values(lg.games).slice(before).find((g) => g.home === lg.userTeam || g.away === lg.userTeam);
         if (mine) {
-          const won = (mine.home === lg.userTeam ? mine.score[0] - mine.score[1] : mine.score[1] - mine.score[0]);
-          toast(`${won > 0 ? 'Win' : won < 0 ? 'Loss' : 'Tie'}: ${teamAbbr(mine.home)} ${mine.score[0]}, ${teamAbbr(mine.away)} ${mine.score[1]}.`);
+          const margin = mine.home === lg.userTeam ? mine.score[0] - mine.score[1] : mine.score[1] - mine.score[0];
+          toast(`${margin > 0 ? 'Win' : margin < 0 ? 'Loss' : 'Tie'}: ${teamAbbr(mine.home)} ${mine.score[0]}, ${teamAbbr(mine.away)} ${mine.score[1]}.`);
         }
         return done();
       }
       case 'lg-to-playoffs': simToPlayoffs(lg); return done();
       case 'lg-sim-season': simSeason(lg); return done();
-      case 'lg-offseason': advanceOffseason(lg); S.lgTab = 'draft'; simToUserPick(lg); return done();
+      case 'lg-new-draft': {
+        if (!u.confirmNew) { u.confirmNew = true; return true; }
+        S.lg = null;
+        u.confirmNew = false;
+        u.saveCode = '';
+        S.lgTab = 'home';
+        saveLeague();
+        return true;
+      }
       case 'lg-auto': {
         const me = userTeam(lg);
         me.autoLineup = el.checked;
@@ -5050,7 +4780,6 @@ function handleLeague(action, el) {
       case 'lg-sign': signFreeAgent(lg, el.dataset.pid); S.modal = null; toast(`Signed ${nameOf(lgPlayer(el.dataset.pid))}.`); return done();
       case 'lg-fa-q': u.faQ = el.value; return true;
       case 'lg-fa-pos': u.faPos = el.value; return true;
-      case 'lg-leader-season': u.leaderSeason = Number(el.value); return true;
       case 'lg-show-code': u.saveCode = JSON.stringify(lg); return true;
       case 'lg-copy': {
         const code = JSON.stringify(lg);
@@ -5080,7 +4809,6 @@ function handleLeaguePlay(action, el) {
   return false;
 }
 
-
 // ---- ui/main.js
 // App shell: top bar, tab routing, event delegation, and focus-safe re-rendering.
 
@@ -5088,7 +4816,7 @@ function handleLeaguePlay(action, el) {
 
 
 
-const NAV = [['exhibition', 'Exhibition'], ['scout', 'Scouting'], ['league', 'League']];
+const NAV = [['exhibition', 'Exhibition'], ['league', 'Season'], ['scout', 'Scouting']];
 const root = document.getElementById('app');
 
 function shell() {
@@ -5098,7 +4826,7 @@ function shell() {
       <nav class="nav" aria-label="Sections">${NAV.map(([k, l]) => `<button data-action="nav" data-tab="${k}"${S.tab === k ? ' aria-current="page"' : ''}>${l}</button>`).join('')}</nav>
     </div></header>
     <main id="main">${body}</main>
-    <footer class="footer">Unofficial fan project. Not affiliated with Nintendo, Game Freak, Creatures or The Pokémon Company. Pokémon data from PokeAPI.</footer>
+    <footer class="footer">Free, unofficial fan project. Not affiliated with Nintendo, Game Freak, Creatures or The Pokémon Company. Pokémon data and artwork load from PokeAPI. Pokémon and its artwork are © their owners.</footer>
     ${renderLeagueModal()}
     ${S.toast ? `<div class="toast" role="status">${esc(S.toast)}</div>` : ''}`;
 }
@@ -5163,6 +4891,12 @@ root.addEventListener('input', (ev) => {
 document.addEventListener('keydown', (ev) => {
   if (ev.key === 'Escape' && S.modal) { S.modal = null; render(); }
 });
+
+// A sprite that cannot load turns its badge into a type-colored jersey.
+document.addEventListener('error', (ev) => {
+  const img = ev.target;
+  if (img?.dataset?.sprite) img.closest('.mon, .art')?.classList.add('noimg');
+}, true);
 
 // Hover tooltips for chart marks.
 const tip = document.createElement('div');

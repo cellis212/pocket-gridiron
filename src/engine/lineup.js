@@ -1,5 +1,5 @@
 // Lineup slots, individual players, and the lineup optimizer.
-import { POKEDEX, NATURES } from '../data/pokedex.js';
+import { POKEDEX } from '../data/pokedex.js';
 import { DEX, POSITIONS, rate, NEUTRAL_NATURE, abilityOf } from './ratings.js';
 import { TYPE } from './perks.js';
 
@@ -27,19 +27,6 @@ const PERFECT = [31, 31, 31, 31, 31, 31];
 // A player is one individual Pokémon: species, level, IVs, nature and ability slot.
 export function makePlayer({ pid, species, level, ivs = PERFECT, nature = NEUTRAL_NATURE, abilitySlot = 0, num = 0 }) {
   return { pid, species, level, ivs, nature, abilitySlot, num };
-}
-
-export function randomPlayer(rng, pid, species, level) {
-  const sp = DEX.get(species);
-  const slots = [0];
-  if (sp.abil[1]) slots.push(1);
-  const abilitySlot = sp.hidden && rng.chance(0.12) ? 2 : rng.pick(slots);
-  return makePlayer({
-    pid, species, level,
-    ivs: Array.from({ length: 6 }, () => rng.int(0, 31)),
-    nature: rng.int(0, NATURES.length - 1),
-    abilitySlot,
-  });
 }
 
 export const ratingOf = (p) => rate(p.species, p.level, p.ivs, p.nature, p.abilitySlot);

@@ -20,5 +20,8 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-The Pokémon data in src/data/pokedex.js comes from PokeAPI (BSD 3-Clause).
-Pokémon names are trademarks of Nintendo, Game Freak, Creatures and The Pokémon Company.
+This license covers the code only. The Pokémon data in src/data/pokedex.js comes from
+PokeAPI (BSD 3-Clause). Sprites and artwork load from PokeAPI's sprite repository at
+runtime and are not part of this repository. Pokémon, Pokémon character names and Pokémon
+artwork are trademarks and copyrights of Nintendo, Game Freak, Creatures and
+The Pokémon Company.

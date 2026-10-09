@@ -65,11 +65,12 @@ test('equal teams produce a normal football game on average', () => {
   assert.ok(rushYds / car > 3.3 && rushYds / car < 5.5, `yards per carry ${rushYds / car}`);
 });
 
-test('a level-100 team beats the same team at level 50', () => {
-  const lv50 = team('gen1', 50, 'kanto50');
+test('a much stronger lineup wins almost every game', () => {
+  const legends = team('legends', 100, 'legends');
+  const little = team('little', 100, 'little');
   let wins = 0;
-  for (let seed = 0; seed < 30; seed++) if (simulateGame(KANTO, lv50, { seed, log: false }).winner === 0) wins++;
-  assert.ok(wins >= 29, `wins ${wins}`);
+  for (let seed = 0; seed < 30; seed++) if (simulateGame(legends, little, { seed, log: false }).winner === 0) wins++;
+  assert.ok(wins >= 28, `wins ${wins}`);
 });
 
 test('playoff games never end in a tie', () => {

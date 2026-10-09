@@ -3,14 +3,14 @@
 export const S = {
   tab: 'exhibition',
   ex: {
-    home: { theme: 'gen1', level: 100, overrides: {}, style: 'balanced', aggr: 'normal' },
-    away: { theme: 'gen9', level: 100, overrides: {}, style: 'balanced', aggr: 'normal' },
+    home: { theme: 'gen1', overrides: {}, style: 'balanced', aggr: 'normal' },
+    away: { theme: 'gen9', overrides: {}, style: 'balanced', aggr: 'normal' },
     result: null, view: 'plays', cur: null, watchI: null, multi: null, editing: null, pickQ: '', open: { home: false, away: false },
   },
-  scout: { q: '', type: 'all', gen: 'all', pos: 'best', level: 100, legend: 'all', sort: 'ovr', dir: -1, page: 0, sel: 445 },
+  scout: { q: '', type: 'all', gen: 'all', pos: 'best', legend: 'all', sort: 'ovr', dir: -1, page: 0, sel: 445 },
   lg: null,
   lgTab: 'home',
-  lgUi: { draftPos: 'all', draftQ: '', faPos: 'all', faQ: '', confirmDelete: false, saveCode: '', loadCode: '' },
+  lgUi: { draftPos: 'all', draftQ: '', faPos: 'all', faQ: '', confirmDelete: false, confirmNew: false, saveCode: '', loadCode: '' },
   modal: null,
   toast: null,
 };
@@ -27,7 +27,7 @@ export function toast(msg) {
   toastTimer = setTimeout(() => { S.toast = null; rerender(); }, 2800);
 }
 
-const LEAGUE_KEY = 'pocket-gridiron:league:v1';
+const LEAGUE_KEY = 'pocket-gridiron:season:v2';
 const UI_KEY = 'pocket-gridiron:ui:v1';
 
 export function saveLeague() {
