@@ -12,11 +12,12 @@ simulated snap by snap from those ratings, with type matchups and abilities in e
   Watch the play-by-play on a field diagram, read the box score and drive chart, or sim the same
   matchup 200 times to see win odds and the margin spread. Any of the 24 lineup slots can be swapped
   for any Pokémon.
-- **Season.** Draft a team from all 1,025 Pokémon in a snake draft against the computer, set your depth
-  chart and game plan, and play a full regular season and the playoffs for the Champion Bowl. Starters
-  sometimes faint and miss a few weeks, so backups matter. The season saves in your browser, and the Save
-  tab gives you a save code to load it anywhere.
-- **Scouting.** All 1,025 Pokémon with their ratings. Sort by any rating or by overall at any position,
+- **Season.** Draft a team from all 1,025 Pokémon in a snake draft against the computer. Pokémon have no
+  positions: you draft on their ratings, then put a Pokémon in each of the 24 lineup slots yourself (each
+  slot's list shows how every Pokémon on your roster would rate there). Then play a full regular season and
+  the playoffs for the Champion Bowl. Starters sometimes faint and miss a few weeks, so backups matter. The
+  season saves in your browser, and the Save tab gives you a save code to load it anywhere.
+- **Scouting.** All 1,025 Pokémon with their ratings. Sort by any rating, rate everyone as any position,
   filter by type and region, and open a full player card.
 
 Every Pokémon always plays at full strength with its best ability. There are no levels, experience or

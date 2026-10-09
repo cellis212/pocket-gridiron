@@ -1,11 +1,11 @@
 // Season screens: new season, draft room, dashboard, roster and depth chart, schedule,
 // standings, leaders, free agents and save codes.
-import { DEX, POSITIONS, POS_KEYS, FIELD_POS } from '../engine/ratings.js';
+import { DEX, ATTRS, POSITIONS, POS_KEYS } from '../engine/ratings.js';
 import { SLOTS, SLOT_POS, SLOT_GROUPS, ratingOf, nameOf } from '../engine/lineup.js';
 import {
   createLeague, userTeam, teamById, rosterOf, currentPick, draftPlayer, simToUserPick, autoDraftRest,
   bestAvailable, startSeason, playWeek, simToPlayoffs, simSeason, standings, releasePlayer, signFreeAgent,
-  assignSlot, setLineup, teamRating, seasonLeaders, currentWeekGames, playerValue,
+  assignSlot, fillEmptySlots, clearDepth, openSlots, setLineup, teamRating, seasonLeaders, currentWeekGames, playerValue,
   ROSTER_MAX, ROSTER_SIZE, TEAM_POOL, LEAGUE_VERSION,
 } from '../engine/league.js';
 import { randomSeed } from '../engine/rng.js';
@@ -13,7 +13,7 @@ import { S, toast, saveLeague } from './state.js';
 import { esc, mon, typeChips, ovrBadge, scoreboard, fieldSvg, ballSpots, playList, boxScore, driveChart, playerCard } from './common.js';
 
 const LG_TABS = [
-  ['home', 'Dashboard'], ['draft', 'Draft'], ['roster', 'Roster'], ['schedule', 'Schedule'], ['standings', 'Standings'],
+  ['home', 'Dashboard'], ['draft', 'Draft'], ['roster', 'Lineup'], ['schedule', 'Schedule'], ['standings', 'Standings'],
   ['stats', 'Leaders'], ['fa', 'Free agents'], ['save', 'Save'],
 ];
 const SWATCHES = ['#c8102e', '#1f6fd1', '#e0a100', '#2e8b3e', '#8a3fb8', '#e2561b', '#118a9c', '#41505e'];
@@ -58,8 +58,11 @@ function primaryActions(lg) {
   switch (lg.phase) {
     case 'draft':
       return S.lgTab === 'draft' ? '' : '<button class="btn primary" data-action="lg-tab" data-tab="draft">Go to the draft room</button>';
-    case 'preseason':
+    case 'preseason': {
+      const open = openSlots(lg).length;
+      if (open) return S.lgTab === 'roster' ? '' : `<button class="btn primary" data-action="lg-tab" data-tab="roster">Set your lineup (${open} empty)</button>`;
       return '<button class="btn primary" data-action="lg-start">Start the season</button>';
+    }
     case 'regular':
       return `<button class="btn primary" data-action="lg-week">Play week ${lg.week}</button><button class="btn" data-action="lg-to-playoffs">Sim to playoffs</button>`;
     case 'playoffs': {
@@ -129,8 +132,8 @@ function dashboard() {
 
 function phaseCard(lg) {
   const text = {
-    draft: 'Every team drafts its roster from the full Pokédex in a snake draft. Each pick shows its best position and overall rating.',
-    preseason: 'Check your depth chart and game plan, then start the season.',
+    draft: 'Every team drafts its roster from the full Pokédex in a snake draft. Pokémon have no positions yet: draft on their ratings, then decide who plays where.',
+    preseason: 'Set your lineup: choose a Pokémon for each of the 24 slots. Each list shows how every Pokémon on your roster would rate at that position.',
     regular: 'Play one week at a time, or sim to the playoffs. Starters sometimes faint and miss a few weeks, so your backups matter.',
     playoffs: 'The top four teams play the Elite Four Round. The two winners meet in the Champion Bowl.',
   }[lg.phase];
@@ -195,6 +198,8 @@ function teamSummaryCard(team) {
   const lg = S.lg;
   const roster = rosterOf(lg, team);
   if (roster.length < SLOTS.length) return `<div class="panel stack"><h3>Your team</h3><p class="small muted" style="margin:0">${roster.length} of ${ROSTER_SIZE} players drafted.</p></div>`;
+  const open = openSlots(lg, team).length;
+  if (open) return `<div class="panel stack"><div class="spread"><h3>Your team</h3><button class="btn small" data-action="lg-tab" data-tab="roster">Set lineup</button></div><p class="small muted" style="margin:0">${roster.length} players drafted. ${open} of 24 lineup slots are still empty.</p></div>`;
   const r = teamRating(lg, team);
   const hurt = roster.filter((p) => p.injury);
   return `<div class="panel stack"><div class="spread"><h3>Your team</h3><button class="btn small ghost" data-action="lg-tab" data-tab="roster">Roster</button></div>
@@ -203,27 +208,32 @@ function teamSummaryCard(team) {
     ${hurt.length ? `<div class="small"><span class="pill warn">Fainted</span> ${hurt.map((p) => `${esc(nameOf(p))} (${p.injury} wk)`).join(', ')}</div>` : ''}</div>`;
 }
 
-// ---------------------------------------------------------------- roster
+// ---------------------------------------------------------------- lineup
 function roster() {
   const lg = S.lg;
   const me = userTeam(lg);
   const players = rosterOf(lg, me);
   if (!players.length) return '<div class="panel empty">Your roster fills up as you draft.</div>';
-  const full = players.length >= SLOTS.length;
-  if (full) setLineup(lg, me);
-  const slotOf = new Map(full ? Object.entries(me.lineup).map(([s, pid]) => [pid, s]) : []);
+  const drafting = !!lg.draft;
+  const open = openSlots(lg, me);
+  if (!drafting && !open.length) setLineup(lg, me);
+  const slotOf = new Map(Object.entries(me.depth).filter(([, pid]) => pid).map(([s, pid]) => [pid, s]));
   const ordered = [...players].sort((a, b) => {
     const sa = slotOf.has(a.pid) ? SLOTS.findIndex((s) => s.id === slotOf.get(a.pid)) : 99;
     const sb = slotOf.has(b.pid) ? SLOTS.findIndex((s) => s.id === slotOf.get(b.pid)) : 99;
-    return sa - sb || playerValue(b) - playerValue(a);
+    return sa - sb || DEX.get(b.species).base.reduce((x, y) => x + y, 0) - DEX.get(a.species).base.reduce((x, y) => x + y, 0);
   });
+  const u = S.lgUi;
+  const head = drafting
+    ? '<p class="faint small" style="margin:0">You set positions after the draft.</p>'
+    : `<p class="faint small" style="margin:0">${open.length ? `Choose a Pokémon for each slot. ${open.length} of 24 are empty.` : 'Every slot is set. A fainted starter is replaced by the best healthy backup for that game only.'} Each list shows your roster rated at that slot's position.</p>
+      <div class="row">${open.length ? `<button class="btn small" data-action="lg-fill">Fill ${open.length === 24 ? 'all slots' : 'empty slots'} with best fits</button>` : ''}${lg.phase === 'preseason' ? `<button class="btn small ghost" data-action="lg-clear">${u.confirmClear ? 'Click again to clear' : 'Clear lineup'}</button>` : ''}</div>`;
   return `<div class="layout">
     <div class="stack">
       <div class="panel stack">
-        <div class="spread"><h3>Depth chart</h3>
-          <label class="row small" style="gap:6px"><input type="checkbox" id="lg-auto" data-action="lg-auto"${me.autoLineup ? ' checked' : ''}> Auto</label></div>
-        <p class="faint small" style="margin:0">${me.autoLineup ? 'The coach picks the best healthy lineup before every game. Change any slot to take over.' : 'Your picks stay put. Fainted players are replaced for that game only.'}</p>
-        ${full ? SLOT_GROUPS.map((g) => `<div><div class="group-label">${g.name}</div>${g.slots.map((slot) => depthRow(me, players, slot)).join('')}</div>`).join('') : '<p class="small muted">The depth chart opens when you have 24 players.</p>'}
+        <div class="spread"><h3>Lineup</h3>${!drafting && !open.length && lg.phase === 'preseason' ? '<button class="btn small primary" data-action="lg-start">Start the season</button>' : ''}</div>
+        ${head}
+        ${drafting ? '' : SLOT_GROUPS.map((g) => `<div><div class="group-label">${g.name}</div>${g.slots.map((slot) => depthRow(me, players, slot, slotOf)).join('')}</div>`).join('')}
       </div>
       <div class="panel stack"><h3>Game plan</h3>
         <label class="field">Play style<select id="lg-style" data-action="lg-strat" data-k="runBias">${[[0.8, 'Run first'], [0, 'Balanced'], [-0.8, 'Air raid']].map(([v, l]) => `<option value="${v}"${Number(me.strategy.runBias) === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
@@ -233,14 +243,12 @@ function roster() {
     </div>
     <div class="panel flush" style="min-width:0">
       <div class="panel-head"><h3>Roster</h3><span class="faint small">${players.length} of ${ROSTER_MAX} · click a player for the full card</span></div>
-      <div class="table-wrap"><table class="data"><thead><tr><th class="l">Player</th><th class="l">Slot</th><th>Pos</th><th>OVR</th><th class="l">This season</th></tr></thead><tbody>
+      <div class="table-wrap"><table class="data"><thead><tr><th class="l">Player</th><th class="l">Slot</th><th>OVR</th><th>BST</th><th class="l">This season</th></tr></thead><tbody>
       ${ordered.map((p) => {
-        const r = ratingOf(p);
         const slot = slotOf.get(p.pid);
-        const pos = slot ? SLOT_POS[slot] : r.best;
         return `<tr class="clickable" data-action="lg-player" data-pid="${p.pid}"><td class="l">${who(p)}</td>
           <td class="l">${slot ? `<b>${slot}</b>` : '<span class="faint">Bench</span>'}${p.injury ? ` <span class="pill warn">Out ${p.injury}</span>` : ''}</td>
-          <td>${pos}</td><td>${ovrBadge(r.ovr[pos])}</td>
+          <td>${slot ? ovrBadge(ratingOf(p).ovr[SLOT_POS[slot]]) : ''}</td><td>${DEX.get(p.species).base.reduce((x, y) => x + y, 0)}</td>
           <td class="l small muted">${statSummary(p.stats.reg)}</td></tr>`;
       }).join('')}
       </tbody></table></div>
@@ -248,16 +256,25 @@ function roster() {
   </div>`;
 }
 
-function depthRow(team, players, slot) {
+function depthRow(team, players, slot, slotOf) {
   const pos = SLOT_POS[slot];
-  const cur = team.lineup[slot];
+  const cur = team.depth[slot] && S.lg.players[team.depth[slot]]?.team === team.id ? team.depth[slot] : null;
+  const curP = cur ? lgPlayer(cur) : null;
+  const sub = curP?.injury ? lgPlayer(team.lineup[slot]) : null;
   const options = [...players].sort((a, b) => ratingOf(b).ovr[pos] - ratingOf(a).ovr[pos]);
-  return `<div class="row" style="gap:8px;flex-wrap:nowrap;padding:2px 0">
-    <span style="width:38px;font:700 12px/1 var(--font-head);letter-spacing:.08em;color:var(--ink-3)">${slot}</span>
-    <select id="lg-slot-${slot}" data-action="lg-assign" data-slot="${slot}" aria-label="${POSITIONS[pos].name} ${slot}" style="flex:1;min-width:0">
-      ${options.map((p) => `<option value="${p.pid}"${p.pid === cur ? ' selected' : ''}${p.injury ? ' disabled' : ''}>${esc(nameOf(p))} · ${ratingOf(p).ovr[pos]}${p.injury ? ' (fainted)' : ''}</option>`).join('')}
-    </select>
-    ${cur ? ovrBadge(ratingOf(lgPlayer(cur)).ovr[pos]) : ''}
+  return `<div style="padding:2px 0">
+    <div class="row" style="gap:8px;flex-wrap:nowrap">
+      <span style="width:38px;font:700 12px/1 var(--font-head);letter-spacing:.08em;color:var(--ink-3)">${slot}</span>
+      <select id="lg-slot-${slot}" data-action="lg-assign" data-slot="${slot}" aria-label="${POSITIONS[pos].name} ${slot}" style="flex:1;min-width:0${cur ? '' : ';border-color:var(--flag)'}">
+        <option value=""${cur ? '' : ' selected'}>Empty: choose a ${POSITIONS[pos].name.toLowerCase()}</option>
+        ${options.map((p) => {
+          const at = slotOf.get(p.pid);
+          return `<option value="${p.pid}"${p.pid === cur ? ' selected' : ''}>${esc(nameOf(p))} · ${ratingOf(p).ovr[pos]}${at && at !== slot ? ` (now ${at})` : ''}${p.injury ? ' (fainted)' : ''}</option>`;
+        }).join('')}
+      </select>
+      ${cur ? ovrBadge(ratingOf(curP).ovr[pos]) : '<span class="ovr" aria-hidden="true">–</span>'}
+    </div>
+    ${sub && sub !== curP ? `<div class="small muted" style="padding:2px 0 0 46px">${esc(nameOf(curP))} fainted (${curP.injury} wk). ${esc(nameOf(sub))} fills in.</div>` : ''}
   </div>`;
 }
 
@@ -273,6 +290,8 @@ function statSummary(s) {
 }
 
 // ---------------------------------------------------------------- draft room
+const bstOf = (p) => DEX.get(p.species).base.reduce((x, y) => x + y, 0);
+
 function draftRoom() {
   const lg = S.lg;
   const d = lg.draft;
@@ -280,21 +299,25 @@ function draftRoom() {
   const onClock = pick && pick.team === lg.userTeam;
   const u = S.lgUi;
   const q = u.draftQ.trim().toLowerCase();
+  const pos = u.draftPos === 'none' ? null : u.draftPos;
   const recommend = onClock ? bestAvailable(lg, lg.userTeam, 1)[0] : null;
+  const val = (row) => (u.draftSort === 'ovr' ? row.ovr : u.draftSort === 'bst' ? row.bst : u.draftSort === 'name' ? row.name : row.r.attrs[u.draftSort]);
   const pool = d.pool
     .map((pid) => lgPlayer(pid))
     .filter((p) => !q || nameOf(p).toLowerCase().includes(q))
     .map((p) => {
       const r = ratingOf(p);
-      const pos = u.draftPos === 'all' ? r.best : u.draftPos;
-      return { p, r, pos, ovr: r.ovr[pos] };
+      return { p, r, name: nameOf(p), bst: bstOf(p), ovr: pos ? r.ovr[pos] : 0 };
     })
-    .sort((a, b) => b.ovr - a.ovr || a.p.species - b.p.species)
+    .sort((a, b) => {
+      const x = val(a);
+      const y = val(b);
+      return (typeof x === 'string' ? x.localeCompare(y) : x - y) * u.draftDir || b.bst - a.bst;
+    })
     .slice(0, 80);
   const recent = d.picks.slice(Math.max(0, d.current - 14), d.current).reverse();
   const mine = d.picks.filter((p) => p.team === lg.userTeam && p.pid);
-  const needs = draftNeeds(lg);
-  const keys = u.draftPos === 'all' ? ['SPD', 'STR', 'AWR'] : Object.entries(POSITIONS[u.draftPos].w).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k]) => k);
+  const th = (key, label, cls = '') => `<th class="${cls}"><button data-action="lg-draft-sort" data-key="${key}" aria-pressed="${u.draftSort === key}">${label}${u.draftSort === key ? (u.draftDir < 0 ? ' ↓' : ' ↑') : ''}</button></th>`;
   return `<div class="stack">
     <div class="panel spread" style="border-left:6px solid ${pick ? teamColor(pick.team) : 'var(--line)'}">
       <div><div class="eyebrow">Round ${pick?.round ?? d.rounds} of ${d.rounds} · Pick ${Math.min(d.current + 1, d.picks.length)} of ${d.picks.length}</div>
@@ -305,39 +328,29 @@ function draftRoom() {
         <button class="btn" data-action="lg-auto-draft">Auto-draft the rest</button>
       </div>
     </div>
-    <div class="layout" style="grid-template-columns:minmax(0,1fr) minmax(260px,330px)">
+    <div class="layout" style="grid-template-columns:minmax(0,1fr) minmax(240px,300px)">
       <div class="panel flush" style="min-width:0">
         <div class="panel-head">
           <div class="row"><input type="search" id="lg-draft-q" data-action="lg-draft-q" placeholder="Search the pool" value="${esc(u.draftQ)}" aria-label="Search the draft pool">
-          <select id="lg-draft-pos" data-action="lg-draft-pos" aria-label="Position"><option value="all">Best position</option>${POS_KEYS.map((k) => `<option value="${k}"${u.draftPos === k ? ' selected' : ''}>${POSITIONS[k].name}</option>`).join('')}</select></div>
-          <span class="faint small">${d.pool.length} available · top 80 shown</span>
+          <label class="row small" style="gap:6px">Rate as <select id="lg-draft-pos" data-action="lg-draft-pos"><option value="none">Any position</option>${POS_KEYS.map((k) => `<option value="${k}"${u.draftPos === k ? ' selected' : ''}>${POSITIONS[k].name}</option>`).join('')}</select></label></div>
+          <span class="faint small">${d.pool.length} available · top 80 shown · click a column to sort</span>
         </div>
-        <div class="table-wrap"><table class="data"><thead><tr><th class="l">Player</th><th>Pos</th><th>OVR</th>${keys.map((k) => `<th>${k}</th>`).join('')}<th></th></tr></thead><tbody>
-        ${pool.map(({ p, r, pos, ovr }) => `<tr><td class="l clickable" data-action="lg-player" data-pid="${p.pid}">${who(p, esc(DEX.get(p.species).genus))}</td><td>${pos}</td><td>${ovrBadge(ovr)}</td>${keys.map((k) => `<td>${r.attrs[k]}</td>`).join('')}
-          <td>${onClock ? `<button class="btn small primary" data-action="lg-draft" data-pid="${p.pid}">Draft</button>` : ''}</td></tr>`).join('')}
+        <div class="table-wrap"><table class="data"><thead><tr><th></th>${th('name', 'Pokémon', 'l')}${pos ? th('ovr', `${pos} OVR`) : ''}${th('bst', 'BST')}${ATTRS.map((a) => th(a.key, a.key)).join('')}</tr></thead><tbody>
+        ${pool.map(({ p, r, bst, ovr }) => `<tr>
+          <td>${onClock ? `<button class="btn small primary" data-action="lg-draft" data-pid="${p.pid}">Draft</button>` : ''}</td>
+          <td class="l clickable" data-action="lg-player" data-pid="${p.pid}">${who(p, esc(DEX.get(p.species).genus))}</td>
+          ${pos ? `<td>${ovrBadge(ovr)}</td>` : ''}<td>${bst}</td>
+          ${ATTRS.map((a) => `<td${pos && POSITIONS[pos].w[a.key] ? ' style="font-weight:700"' : pos ? ' class="faint"' : ''}>${r.attrs[a.key]}</td>`).join('')}</tr>`).join('')}
         </tbody></table></div>
       </div>
       <div class="stack">
-        <div class="panel"><h3>Your needs</h3><p class="small muted" style="margin:6px 0 0">${needs.length ? needs.map(([pos, n]) => `${n} ${pos}`).join(' · ') : 'Every starting slot is filled. Draft backups for when players faint.'}</p></div>
         <div class="panel flush"><div class="panel-head"><h3>Your picks</h3><span class="faint small">${mine.length} of ${d.rounds}</span></div>
-          <div class="news">${mine.slice().reverse().map((pk) => `<div class="news-item"><span class="when">Rd ${pk.round}</span><span class="txt">${esc(nameOf(lgPlayer(pk.pid)))} · ${ratingOf(lgPlayer(pk.pid)).best}</span></div>`).join('') || '<div class="empty small">No picks yet.</div>'}</div></div>
+          <div class="news">${mine.slice().reverse().map((pk) => `<div class="news-item"><span class="when">Rd ${pk.round}</span><span class="txt">${esc(nameOf(lgPlayer(pk.pid)))}</span></div>`).join('') || '<div class="empty small">No picks yet.</div>'}</div></div>
         <div class="panel flush"><div class="panel-head"><h3>Recent picks</h3></div>
-          <div class="news">${recent.map((pk) => `<div class="news-item"><span class="when">${esc(teamAbbr(pk.team))}</span><span class="txt">${esc(nameOf(lgPlayer(pk.pid)))} · ${ratingOf(lgPlayer(pk.pid)).best}</span></div>`).join('') || '<div class="empty small">No picks yet.</div>'}</div></div>
+          <div class="news">${recent.map((pk) => `<div class="news-item"><span class="when">${esc(teamAbbr(pk.team))}</span><span class="txt">${esc(nameOf(lgPlayer(pk.pid)))}</span></div>`).join('') || '<div class="empty small">No picks yet.</div>'}</div></div>
       </div>
     </div>
   </div>`;
-}
-
-function draftNeeds(lg) {
-  const me = userTeam(lg);
-  const need = {};
-  for (const s of SLOTS) need[s.pos] = (need[s.pos] ?? 0) + 1;
-  const players = rosterOf(lg, me);
-  if (players.length) {
-    setLineup(lg, me);
-    for (const s of SLOTS) if (me.lineup[s.id]) need[s.pos]--;
-  }
-  return Object.entries(need).filter(([, n]) => n > 0);
 }
 
 // ---------------------------------------------------------------- schedule
@@ -396,18 +409,18 @@ function freeAgents() {
     .map((pid) => lgPlayer(pid))
     .filter((p) => p && (!q || nameOf(p).toLowerCase().includes(q)))
     .map((p) => {
-      const r = ratingOf(p);
-      const pos = u.faPos === 'all' ? r.best : u.faPos;
-      return { p, pos, ovr: r.ovr[pos] };
+      const pos = u.faPos === 'none' ? null : u.faPos;
+      return { p, pos, ovr: pos ? ratingOf(p).ovr[pos] : 0, bst: bstOf(p) };
     })
-    .sort((a, b) => b.ovr - a.ovr)
+    .sort((a, b) => b.ovr - a.ovr || b.bst - a.bst)
     .slice(0, 60);
+  const ratePos = u.faPos === 'none' ? null : u.faPos;
   return `<div class="panel flush">
     <div class="panel-head"><div class="row"><input type="search" id="lg-fa-q" data-action="lg-fa-q" placeholder="Search free agents" value="${esc(u.faQ)}" aria-label="Search free agents">
-      <select id="lg-fa-pos" data-action="lg-fa-pos" aria-label="Position"><option value="all">Best position</option>${FIELD_POS.concat(['K', 'P']).map((k) => `<option value="${k}"${u.faPos === k ? ' selected' : ''}>${POSITIONS[k].name}</option>`).join('')}</select></div>
+      <label class="row small" style="gap:6px">Rate as <select id="lg-fa-pos" data-action="lg-fa-pos"><option value="none">Any position</option>${POS_KEYS.map((k) => `<option value="${k}"${u.faPos === k ? ' selected' : ''}>${POSITIONS[k].name}</option>`).join('')}</select></label></div>
       <span class="faint small">${drafting ? 'Free agency opens after the draft.' : full ? `Your roster is full (${ROSTER_MAX}). Release someone to sign.` : `${me.roster.length} of ${ROSTER_MAX} roster spots used`}</span></div>
-    <div class="table-wrap"><table class="data"><thead><tr><th class="l">Player</th><th>Pos</th><th>OVR</th><th></th></tr></thead><tbody>
-    ${list.map(({ p, pos, ovr }) => `<tr><td class="l clickable" data-action="lg-player" data-pid="${p.pid}">${who(p)}</td><td>${pos}</td><td>${ovrBadge(ovr)}</td><td><button class="btn small" data-action="lg-sign" data-pid="${p.pid}"${full || drafting ? ' disabled' : ''}>Sign</button></td></tr>`).join('')}
+    <div class="table-wrap"><table class="data"><thead><tr><th class="l">Player</th>${ratePos ? `<th>${ratePos} OVR</th>` : ''}<th>BST</th><th></th></tr></thead><tbody>
+    ${list.map(({ p, pos, ovr, bst }) => `<tr><td class="l clickable" data-action="lg-player" data-pid="${p.pid}">${who(p)}</td>${pos ? `<td>${ovrBadge(ovr)}</td>` : ''}<td>${bst}</td><td><button class="btn small" data-action="lg-sign" data-pid="${p.pid}"${full || drafting ? ' disabled' : ''}>Sign</button></td></tr>`).join('')}
     </tbody></table></div></div>`;
 }
 
@@ -478,7 +491,7 @@ function playerModal(m) {
   const mine = p.team === me.id;
   const isFa = !p.team && !lg.draft;
   const onClock = lg.draft && currentPick(lg)?.team === lg.userTeam && lg.draft.pool.includes(p.pid);
-  const slot = mine ? Object.entries(me.lineup).find(([, pid]) => pid === p.pid)?.[0] : null;
+  const slot = mine ? Object.entries(me.depth).find(([, pid]) => pid === p.pid)?.[0] : null;
   const pos = slot ? SLOT_POS[slot] : null;
   const actions = [
     onClock ? `<button class="btn small primary" data-action="lg-draft" data-pid="${p.pid}">Draft</button>` : '',
@@ -529,13 +542,19 @@ export function handleLeague(action, el) {
         draftPlayer(lg, el.dataset.pid);
         S.modal = null;
         if (lg.draft) simToUserPick(lg);
-        if (!lg.draft) S.lgTab = 'home';
+        if (!lg.draft) S.lgTab = 'roster';
         return done();
       }
       case 'lg-sim-pick': simToUserPick(lg); return done();
-      case 'lg-auto-draft': autoDraftRest(lg); S.lgTab = 'home'; return done();
+      case 'lg-auto-draft': autoDraftRest(lg); S.lgTab = 'roster'; return done();
+      case 'lg-draft-sort': {
+        const key = el.dataset.key;
+        if (u.draftSort === key) u.draftDir = -u.draftDir;
+        else { u.draftSort = key; u.draftDir = key === 'name' ? 1 : -1; }
+        return true;
+      }
       case 'lg-draft-q': u.draftQ = el.value; return true;
-      case 'lg-draft-pos': u.draftPos = el.value; return true;
+      case 'lg-draft-pos': u.draftPos = el.value; u.draftSort = el.value === 'none' ? 'bst' : 'ovr'; u.draftDir = -1; return true;
       case 'lg-start': startSeason(lg); return done();
       case 'lg-week': {
         const before = Object.keys(lg.games).length;
@@ -558,13 +577,14 @@ export function handleLeague(action, el) {
         saveLeague();
         return true;
       }
-      case 'lg-auto': {
-        const me = userTeam(lg);
-        me.autoLineup = el.checked;
-        setLineup(lg, me);
+      case 'lg-assign': assignSlot(lg, el.dataset.slot, el.value || null); u.confirmClear = false; return done();
+      case 'lg-fill': fillEmptySlots(lg); u.confirmClear = false; return done();
+      case 'lg-clear': {
+        if (!u.confirmClear) { u.confirmClear = true; return true; }
+        clearDepth(lg);
+        u.confirmClear = false;
         return done();
       }
-      case 'lg-assign': assignSlot(lg, el.dataset.slot, el.value); return done();
       case 'lg-strat': userTeam(lg).strategy[el.dataset.k] = Number(el.value); return done();
       case 'lg-player': S.modal = { kind: 'player', pid: el.dataset.pid }; return true;
       case 'lg-game': S.modal = { kind: 'game', id: el.dataset.id }; return true;

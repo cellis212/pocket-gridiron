@@ -21,8 +21,8 @@ function scoutRows() {
     if (f.legend === 'only' && !(sp.leg || sp.myth)) continue;
     const p = exhibitionPlayer(sp.id, 100);
     const r = ratingOf(p);
-    const pos = f.pos === 'best' ? r.best : f.pos;
-    rows.push({ sp, p, r, pos, ovr: r.ovr[pos] });
+    const pos = f.pos === 'none' ? null : f.pos;
+    rows.push({ sp, p, r, pos, ovr: pos ? r.ovr[pos] : 0 });
   }
   const key = f.sort;
   const val = (row) => {
@@ -50,7 +50,8 @@ export function renderScout() {
   const sel = POKEDEX.find((sp) => sp.id === f.sel) ?? rows[0]?.sp;
   const th = (key, label, cls = '') => `<th class="${cls}"><button data-action="sc-sort" data-key="${key}" aria-pressed="${f.sort === key}">${label}${f.sort === key ? (f.dir < 0 ? ' ↓' : ' ↑') : ''}</button></th>`;
   const selPlayer = sel ? exhibitionPlayer(sel.id, 100) : null;
-  const selPos = sel ? (f.pos === 'best' ? ratingOf(selPlayer).best : f.pos) : null;
+  const selPos = sel && f.pos !== 'none' ? f.pos : null;
+  const addPos = sel ? selPos ?? ratingOf(selPlayer).best : null;
   return `<div class="stack">
     <div class="spread">
       <div><h1>Scouting</h1><div class="muted">All ${POKEDEX.length.toLocaleString()} Pokémon, rated as football players from their real stats.</div></div>
@@ -58,8 +59,8 @@ export function renderScout() {
     <div class="panel">
       <div class="row" style="align-items:flex-end">
         <label class="field" style="flex:2 1 180px">Search<input type="search" id="sc-q" data-action="sc-q" placeholder="Name or Pokédex number" value="${esc(f.q)}"></label>
-        <label class="field" style="flex:1 1 130px">Position
-          <select id="sc-pos" data-action="sc-pos"><option value="best"${f.pos === 'best' ? ' selected' : ''}>Best position</option>${POS_KEYS.map((k) => `<option value="${k}"${f.pos === k ? ' selected' : ''}>${POSITIONS[k].name}</option>`).join('')}</select></label>
+        <label class="field" style="flex:1 1 130px">Rate as
+          <select id="sc-pos" data-action="sc-pos"><option value="none"${f.pos === 'none' ? ' selected' : ''}>Any position</option>${POS_KEYS.map((k) => `<option value="${k}"${f.pos === k ? ' selected' : ''}>${POSITIONS[k].name}</option>`).join('')}</select></label>
         <label class="field" style="flex:1 1 110px">Type
           <select id="sc-type" data-action="sc-type"><option value="all">All types</option>${TYPES.map((t, i) => `<option value="${i}"${String(i) === f.type ? ' selected' : ''}>${typeLabel(i)}</option>`).join('')}</select></label>
         <label class="field" style="flex:1 1 110px">Region
@@ -73,18 +74,17 @@ export function renderScout() {
         <div class="panel-head"><span class="muted small">${rows.length.toLocaleString()} Pokémon · page ${f.page + 1} of ${pages}</span>
           <span class="row"><button class="btn small" data-action="sc-page" data-d="-1"${f.page === 0 ? ' disabled' : ''}>Previous</button><button class="btn small" data-action="sc-page" data-d="1"${f.page >= pages - 1 ? ' disabled' : ''}>Next</button></span></div>
         <div class="table-wrap"><table class="data">
-          <thead><tr>${th('id', '#', 'l')}${th('name', 'Pokémon', 'l')}<th>Pos</th>${th('ovr', 'OVR')}${ATTRS.map((a) => th(a.key, a.key)).join('')}${th('bst', 'BST')}</tr></thead>
+          <thead><tr>${th('id', '#', 'l')}${th('name', 'Pokémon', 'l')}${f.pos !== 'none' ? th('ovr', `${f.pos} OVR`) : ''}${th('bst', 'BST')}${ATTRS.map((a) => th(a.key, a.key)).join('')}</tr></thead>
           <tbody>${shown.map((row) => `<tr class="clickable${row.sp.id === sel?.id ? ' sel' : ''}" data-action="sc-pick" data-id="${row.sp.id}">
             <td class="l faint">${row.sp.id}</td>
             <td class="l"><span class="who">${mon(row.sp.id, '', 'xs')}<span><b>${esc(row.sp.name)}</b> ${typeChips(row.sp.id)}</span></span></td>
-            <td>${row.pos}</td><td>${ovrBadge(row.ovr)}</td>
-            ${ATTRS.map((a) => `<td${POSITIONS[row.pos].w[a.key] ? ' style="font-weight:700"' : ' class="faint"'}>${row.r.attrs[a.key]}</td>`).join('')}
-            <td class="faint">${row.sp.base.reduce((x, y) => x + y, 0)}</td></tr>`).join('') || `<tr><td class="l" colspan="21"><div class="empty">No Pokémon match these filters.</div></td></tr>`}</tbody>
+            ${row.pos ? `<td>${ovrBadge(row.ovr)}</td>` : ''}<td>${row.sp.base.reduce((x, y) => x + y, 0)}</td>
+            ${ATTRS.map((a) => `<td${row.pos && POSITIONS[row.pos].w[a.key] ? ' style="font-weight:700"' : row.pos ? ' class="faint"' : ''}>${row.r.attrs[a.key]}</td>`).join('')}</tr>`).join('') || `<tr><td class="l" colspan="20"><div class="empty">No Pokémon match these filters.</div></td></tr>`}</tbody>
         </table></div>
       </div>
       <div class="panel sticky-card" style="position:sticky;top:76px">${sel ? playerCard(selPlayer, {
         contextPos: selPos,
-        actions: `<button class="btn small" data-action="sc-add" data-side="home" data-id="${sel.id}" data-pos="${selPos}">Start for ${esc(exTeam('home').abbr)} at ${selPos}</button><button class="btn small" data-action="sc-add" data-side="away" data-id="${sel.id}" data-pos="${selPos}">Start for ${esc(exTeam('away').abbr)} at ${selPos}</button>`,
+        actions: ['home', 'away'].map((side) => `<button class="btn small" data-action="sc-add" data-side="${side}" data-id="${sel.id}" data-pos="${addPos}">Start for ${esc(exTeam(side).abbr)} at ${addPos}</button>`).join(''),
       }) : '<div class="empty">Pick a Pokémon.</div>'}</div>
     </div>
   </div>`;
@@ -94,7 +94,7 @@ export function handleScout(action, el) {
   const f = S.scout;
   switch (action) {
     case 'sc-q': f.q = el.value; f.page = 0; return true;
-    case 'sc-pos': f.pos = el.value; f.page = 0; if (f.sort !== 'ovr') f.sort = 'ovr'; return true;
+    case 'sc-pos': f.pos = el.value; f.page = 0; f.sort = f.pos === 'none' ? 'bst' : 'ovr'; f.dir = -1; return true;
     case 'sc-type': f.type = el.value; f.page = 0; return true;
     case 'sc-gen': f.gen = el.value; f.page = 0; return true;
     case 'sc-legend': f.legend = el.value; f.page = 0; return true;

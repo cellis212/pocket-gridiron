@@ -250,10 +250,11 @@ export function driveChart(result) {
 export function playerCard(p, { contextPos = null, actions = '', extra = '' } = {}) {
   const sp = DEX.get(p.species);
   const r = rate(p.species, p.level, p.ivs, p.nature, p.abilitySlot);
-  const pos = contextPos ?? r.best;
+  const pos = contextPos;
   const base = sp.base;
+  const bst = base.reduce((a, b) => a + b, 0);
   const posBars = POS_KEYS.map((k) => ({ label: POSITIONS[k].name, value: r.ovr[k], hot: k === pos }));
-  const keyAttrs = new Set(Object.keys(POSITIONS[pos].w));
+  const keyAttrs = new Set(pos ? Object.keys(POSITIONS[pos].w) : []);
   const attrBars = ATTRS.map((a) => ({ label: a.name, value: r.attrs[a.key], hot: keyAttrs.has(a.key), title: `From ${a.from}` }));
   return `<div class="stack">
     <div class="card-head">
@@ -263,17 +264,17 @@ export function playerCard(p, { contextPos = null, actions = '', extra = '' } = 
         <h2>${esc(sp.name)}</h2>
         <div class="row" style="gap:6px;margin-top:4px">${typeChips(p.species)}${sp.leg ? '<span class="pill flag">Legendary</span>' : ''}${sp.myth ? '<span class="pill flag">Mythical</span>' : ''}</div>
       </div>
-      <div class="big-ovr"><div class="eyebrow">${pos} OVR</div><div class="v">${r.ovr[pos]}</div></div>
+      <div class="big-ovr">${pos ? `<div class="eyebrow">${pos} OVR</div><div class="v">${r.ovr[pos]}</div>` : `<div class="eyebrow">Base stats</div><div class="v">${bst}</div>`}</div>
     </div>
     ${actions ? `<div class="row">${actions}</div>` : ''}
     ${extra}
     <div class="card-section"><div class="eyebrow" style="margin-bottom:6px">Ability</div>
       <b>${esc(abilityTitle(r.ability))}</b> <span class="muted">${esc(perkText(r.ability))}</span></div>
-    <div class="card-section"><div class="eyebrow" style="margin-bottom:8px">Overall by position</div>${barRows(posBars)}</div>
-    <div class="card-section"><div class="spread" style="margin-bottom:8px"><span class="eyebrow">Football ratings</span><span class="faint small">Highlighted = used at ${pos}</span></div>${barRows(attrBars)}</div>
+    <div class="card-section"><div class="spread" style="margin-bottom:8px"><span class="eyebrow">Football ratings</span><span class="faint small">${pos ? `Highlighted = used at ${pos}` : 'From real stats, size and body shape'}</span></div>${barRows(attrBars)}</div>
+    <div class="card-section"><div class="spread" style="margin-bottom:8px"><span class="eyebrow">Overall if played at</span><span class="faint small">You choose the position</span></div>${barRows(posBars)}</div>
     <div class="card-section"><div class="eyebrow" style="margin-bottom:8px">Base stats</div>
       <div class="statgrid">${STAT_LABELS.map((l, i) => `<div><div class="k">${l}</div><div class="v">${base[i]}</div></div>`).join('')}</div>
-      <div class="faint small" style="margin-top:6px">Total ${base.reduce((a, b) => a + b, 0)}</div></div>
+      <div class="faint small" style="margin-top:6px">Total ${bst}</div></div>
     <div class="card-section"><div class="eyebrow" style="margin-bottom:6px">Body</div>
       <div class="small">${(sp.h / 10).toFixed(1)} m · ${(sp.w / 10).toFixed(1)} kg · ${esc(SHAPE_LABELS[sp.shape] ?? sp.shape)} body: hands ${Math.round(SHAPE_HANDS[sp.shape] * 100)}%, kicking legs ${Math.round(SHAPE_LEGS[sp.shape] * 100)}%</div></div>
   </div>`;

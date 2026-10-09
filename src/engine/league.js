@@ -1,6 +1,7 @@
 // Season mode: a fantasy draft from every Pokémon, a regular season, and playoffs.
 // Every Pokémon plays at full strength from its real base stats, so a player never changes
-// during the season. The draft is the whole game.
+// during the season. Pokémon have no set positions: after the draft the user puts a Pokémon
+// in each of the 24 lineup slots (team.depth). Computer teams set their own lineups.
 import { POKEDEX } from '../data/pokedex.js';
 import { makeRng } from './rng.js';
 import { POSITIONS, POS_KEYS } from './ratings.js';
@@ -32,11 +33,6 @@ export const TEAM_POOL = [
   { name: 'Lumiose Lights', abbr: 'LUM', color: '#b8336a' },
 ];
 
-const NUMBER_RANGES = {
-  QB: [[1, 19]], RB: [[20, 49]], WR: [[10, 19], [80, 89]], TE: [[80, 89], [40, 49]], OL: [[50, 79]],
-  DL: [[90, 99], [50, 79]], LB: [[40, 59], [90, 99]], CB: [[20, 49]], S: [[20, 49]], K: [[1, 19]], P: [[1, 19]],
-};
-
 // ---------------------------------------------------------------- creation
 export function createLeague({ seed = 1, teamCount = 8, userName, userAbbr, userColor, teamIndex = 0 } = {}) {
   const rng = makeRng(seed);
@@ -46,7 +42,7 @@ export function createLeague({ seed = 1, teamCount = 8, userName, userAbbr, user
     const meta = pool[i];
     teams.push({
       id: `t${i}`, name: meta.name, abbr: meta.abbr, color: meta.color,
-      roster: [], lineup: {}, autoLineup: true, user: false,
+      roster: [], lineup: {}, depth: {}, user: false,
       strategy: { runBias: Number(rng.normal(0, 0.4).toFixed(2)), aggression: Number(rng.next().toFixed(2)), blitz: Number(rng.next().toFixed(2)) },
     });
   }
@@ -198,10 +194,10 @@ export function autoDraftRest(league) {
 
 function finishDraft(league) {
   league.draft = null;
-  for (const t of league.teams) setLineup(league, t);
+  for (const t of league.teams) if (!t.user) setLineup(league, t);
   league.phase = 'preseason';
   makeSchedule(league);
-  addNews(league, 'The draft is complete. Set your lineup, then start the season.');
+  addNews(league, 'The draft is complete. Put a Pokémon in each of the 24 lineup slots, then start the season.', 'user');
 }
 
 function signToTeam(league, team, p) {
@@ -210,12 +206,12 @@ function signToTeam(league, team, p) {
   p.num = jerseyNumber(league, team, p);
 }
 
+// Numbers carry no position: each Pokémon gets a number from its Pokédex id, moved up if taken.
 function jerseyNumber(league, team, p) {
   const taken = new Set(rosterOf(league, team).filter((x) => x.pid !== p.pid).map((x) => x.num));
-  const ranges = NUMBER_RANGES[ratingOf(p).best] ?? [[1, 99]];
-  for (const [lo, hi] of ranges) for (let n = lo; n <= hi; n++) if (!taken.has(n)) return n;
-  for (let n = 1; n <= 99; n++) if (!taken.has(n)) return n;
-  return 0;
+  let n = ((p.species * 37) % 99) + 1;
+  for (let i = 0; i < 99 && taken.has(n); i++) n = (n % 99) + 1;
+  return n;
 }
 
 export function releasePlayer(league, pid) {
@@ -225,6 +221,7 @@ export function releasePlayer(league, pid) {
   if (team.roster.length <= ROSTER_MIN) throw new Error(`You need at least ${ROSTER_MIN} players. Sign someone first.`);
   team.roster = team.roster.filter((x) => x !== pid);
   for (const s of Object.keys(team.lineup)) if (team.lineup[s] === pid) team.lineup[s] = null;
+  for (const s of Object.keys(team.depth)) if (team.depth[s] === pid) team.depth[s] = null;
   p.team = null;
   league.freeAgents.push(pid);
   if (team.user) addNews(league, `You released ${nameOf(p)}.`, 'user');
@@ -256,26 +253,44 @@ function fillRoster(league, team) {
 }
 
 // ---------------------------------------------------------------- lineups
+// team.lineup is the lineup for the next game. For the user it is team.depth, with any fainted
+// starter replaced by the best healthy backup for that game only; the user's choices stay put.
 export function setLineup(league, team) {
   const healthy = rosterOf(league, team).filter((p) => !p.injury);
-  if (team.autoLineup || !team.user) {
+  if (!team.user) {
     team.lineup = autoLineup(healthy);
     return;
   }
   const locked = {};
-  for (const [slot, pid] of Object.entries(team.lineup)) {
+  for (const [slot, pid] of Object.entries(team.depth ?? {})) {
     const p = league.players[pid];
     if (p && p.team === team.id && !p.injury) locked[slot] = pid;
   }
   team.lineup = autoLineup(healthy, { locked });
 }
 
+// Put a Pokémon in a slot (or empty it with null). A Pokémon holds one slot at a time.
 export function assignSlot(league, slot, pid) {
   const team = userTeam(league);
-  team.autoLineup = false;
-  for (const s of Object.keys(team.lineup)) if (team.lineup[s] === pid) team.lineup[s] = null;
-  team.lineup[slot] = pid;
-  setLineup(league, team);
+  if (!SLOT_POS[slot]) throw new Error(`Unknown slot ${slot}.`);
+  if (pid && league.players[pid]?.team !== team.id) throw new Error('That Pokémon is not on your team.');
+  for (const s of Object.keys(team.depth)) if (team.depth[s] === pid) team.depth[s] = null;
+  team.depth[slot] = pid || null;
+}
+
+// Fill only the empty slots with the best remaining fits. Slots the user set stay as they are.
+export function fillEmptySlots(league) {
+  const team = userTeam(league);
+  const locked = Object.fromEntries(Object.entries(team.depth).filter(([, pid]) => pid && league.players[pid]?.team === team.id));
+  team.depth = autoLineup(rosterOf(league, team), { locked });
+}
+
+export function clearDepth(league) {
+  userTeam(league).depth = {};
+}
+
+export function openSlots(league, team = userTeam(league)) {
+  return SLOTS.filter((s) => !team.depth?.[s.id] || league.players[team.depth[s.id]]?.team !== team.id).map((s) => s.id);
 }
 
 export function matchTeam(league, team) {
@@ -312,6 +327,8 @@ function makeSchedule(league) {
 
 export function startSeason(league) {
   if (league.phase !== 'preseason') throw new Error('The season can start only after the draft.');
+  const open = openSlots(league);
+  if (open.length) throw new Error(`Set your lineup first: ${open.length} slot${open.length > 1 ? 's are' : ' is'} empty (${open.join(', ')}).`);
   for (const t of league.teams) { fillRoster(league, t); setLineup(league, t); }
   league.phase = 'regular';
   league.week = 1;

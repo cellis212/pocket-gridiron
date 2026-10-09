@@ -7,10 +7,10 @@ export const S = {
     away: { theme: 'gen9', overrides: {}, style: 'balanced', aggr: 'normal' },
     result: null, view: 'plays', cur: null, watchI: null, multi: null, editing: null, pickQ: '', open: { home: false, away: false },
   },
-  scout: { q: '', type: 'all', gen: 'all', pos: 'best', legend: 'all', sort: 'ovr', dir: -1, page: 0, sel: 445 },
+  scout: { q: '', type: 'all', gen: 'all', pos: 'none', legend: 'all', sort: 'bst', dir: -1, page: 0, sel: 445 },
   lg: null,
   lgTab: 'home',
-  lgUi: { draftPos: 'all', draftQ: '', faPos: 'all', faQ: '', confirmDelete: false, confirmNew: false, saveCode: '', loadCode: '' },
+  lgUi: { draftPos: 'none', draftQ: '', draftSort: 'bst', draftDir: -1, faPos: 'none', faQ: '', confirmDelete: false, confirmNew: false, confirmClear: false, saveCode: '', loadCode: '' },
   modal: null,
   toast: null,
 };
