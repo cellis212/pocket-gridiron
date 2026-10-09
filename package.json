@@ -1,0 +1,17 @@
+{
+  "name": "pocket-gridiron",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A football GM sim where all 1,025 Pokémon get football ratings from their real stats.",
+  "type": "module",
+  "scripts": {
+    "data": "node scripts/build-data.mjs",
+    "calibrate": "node scripts/calibrate.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/serve.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
