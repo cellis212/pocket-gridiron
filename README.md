@@ -18,7 +18,8 @@ simulated snap by snap from those ratings, with type matchups and abilities in e
   the playoffs for the Champion Bowl. Starters sometimes faint and miss a few weeks, so backups matter. The
   season saves in your browser, and the Save tab gives you a save code to load it anywhere.
 - **Scouting.** All 1,025 Pokémon with their ratings. Sort by any rating, rate everyone as any position,
-  filter by type and region, and open a full player card.
+  filter by type and region, and open a full player card. "How ratings are calculated" shows every
+  formula, the body-shape table, the position weights, and the step-by-step math for any Pokémon.
 
 Every Pokémon always plays at full strength with its best ability. There are no levels, experience or
 evolutions: a player's ratings never change, so the draft decides the season.

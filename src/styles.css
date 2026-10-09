@@ -181,6 +181,8 @@ table.data tr.me td:first-child { box-shadow: inset 3px 0 0 var(--flag); }
 table.data th button { all: unset; cursor: pointer; }
 table.data th button:hover, table.data th button[aria-pressed="true"] { color: var(--ink); }
 tr.clickable { cursor: pointer; }
+table.data.wrap td { white-space: normal; }
+table.data.wrap td:first-child { white-space: nowrap; }
 
 /* ---------- scoreboard ---------- */
 .scoreboard { background: var(--ink); color: var(--bg); border-radius: var(--radius); padding: 14px 16px; display: grid; gap: 10px; }

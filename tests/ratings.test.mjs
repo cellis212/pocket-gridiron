@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { POKEDEX, TYPES } from '../src/data/pokedex.js';
-import { DEX, realStats, rate, NEUTRAL_NATURE, ATTR_KEYS, SHAPE_HANDS } from '../src/engine/ratings.js';
+import { DEX, realStats, rate, NEUTRAL_NATURE, ATTR_KEYS, SHAPE_HANDS, explainRating, FORMULAS } from '../src/engine/ratings.js';
 import { typeFactor, TYPE } from '../src/engine/perks.js';
 import { exhibitionPlayer, autoLineup, SLOTS, themePool, THEMES } from '../src/engine/lineup.js';
 
@@ -74,5 +74,19 @@ test('the lineup optimizer fills all 24 slots with different players', () => {
     assert.equal(used.length, SLOTS.length, theme.id);
     assert.ok(used.every(Boolean), theme.id);
     assert.equal(new Set(used).size, used.length, theme.id);
+  }
+});
+
+test('the Scouting explainer shows the same math as the ratings', () => {
+  assert.deepEqual(Object.keys(FORMULAS), ATTR_KEYS);
+  for (const sp of POKEDEX) {
+    const p = exhibitionPlayer(sp.id, 100);
+    const r = rate(p.species, p.level, p.ivs, p.nature, p.abilitySlot);
+    for (const k of ATTR_KEYS) {
+      const e = explainRating(p, k);
+      assert.equal(e.rating, r.attrs[k], `${sp.name} ${k}`);
+      const weights = FORMULAS[k].mix.reduce((t, [, w]) => t + w, 0);
+      assert.ok(Math.abs(weights - 1) < 1e-9, `${k} weights add to 100%`);
+    }
   }
 });

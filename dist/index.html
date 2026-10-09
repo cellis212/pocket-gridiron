@@ -191,6 +191,8 @@ table.data tr.me td:first-child { box-shadow: inset 3px 0 0 var(--flag); }
 table.data th button { all: unset; cursor: pointer; }
 table.data th button:hover, table.data th button[aria-pressed="true"] { color: var(--ink); }
 tr.clickable { cursor: pointer; }
+table.data.wrap td { white-space: normal; }
+table.data.wrap td:first-child { white-space: nowrap; }
 
 /* ---------- scoreboard ---------- */
 .scoreboard { background: var(--ink); color: var(--bg); border-radius: var(--radius); padding: 14px 16px; display: grid; gap: 10px; }
@@ -309,7 +311,7 @@ const S = {
     away: { theme: 'gen9', overrides: {}, style: 'balanced', aggr: 'normal' },
     result: null, view: 'plays', cur: null, watchI: null, multi: null, editing: null, pickQ: '', open: { home: false, away: false },
   },
-  scout: { q: '', type: 'all', gen: 'all', pos: 'none', legend: 'all', sort: 'bst', dir: -1, page: 0, sel: 445 },
+  scout: { q: '', type: 'all', gen: 'all', pos: 'none', legend: 'all', sort: 'bst', dir: -1, page: 0, sel: 445, how: false, howAttr: 'CTH' },
   lg: null,
   lgTab: 'home',
   lgUi: { draftPos: 'none', draftQ: '', draftSort: 'bst', draftDir: -1, faPos: 'none', faQ: '', confirmDelete: false, confirmNew: false, confirmClear: false, saveCode: '', loadCode: '' },
@@ -1472,24 +1474,42 @@ const STAT_LABELS = ['HP', 'Atk', 'Def', 'SpA', 'SpD', 'Spe'];
 const DEX = new Map(POKEDEX.map((p) => [p.id, p]));
 const NEUTRAL_NATURE = NATURES.findIndex((n) => n.name === 'hardy');
 
-const ATTRS = [
-  { key: 'SPD', name: 'Speed', from: 'Spe' },
-  { key: 'AGI', name: 'Agility', from: 'Spe, SpD, light body' },
-  { key: 'STR', name: 'Strength', from: 'Atk, HP, weight' },
-  { key: 'AWR', name: 'Awareness', from: 'SpA, SpD' },
-  { key: 'THP', name: 'Throw Power', from: 'Atk, SpA, hands' },
-  { key: 'THA', name: 'Throw Accuracy', from: 'SpA, SpD, hands' },
-  { key: 'CTH', name: 'Catching', from: 'SpD, Spe, SpA, hands, height' },
-  { key: 'CAR', name: 'Carrying', from: 'HP, Def, hands' },
-  { key: 'RBK', name: 'Run Block', from: 'Def, Atk, HP, weight' },
-  { key: 'PBK', name: 'Pass Block', from: 'Def, SpD, HP, weight' },
-  { key: 'PRS', name: 'Pass Rush', from: 'Atk, Spe, HP, weight' },
-  { key: 'TAK', name: 'Tackling', from: 'Atk, Def, HP, weight' },
-  { key: 'COV', name: 'Coverage', from: 'Spe, SpD, SpA, light body' },
-  { key: 'KPW', name: 'Kick Power', from: 'Atk, legs' },
-  { key: 'KAC', name: 'Kick Accuracy', from: 'SpA, SpD, legs' },
-  { key: 'STA', name: 'Stamina', from: 'HP, Def' },
-];
+// How each football rating is built. This table drives both the math and the description on the
+// Scouting page, so the two cannot drift apart.
+// mix: weights over real stats. "hp" is HP without its level bonus, so it weighs like the others;
+// "hi" and "lo" are the higher and the lower of Atk and SpA.
+// body: size and shape factors, applied in order (see BODY_RULES and the shape tables below).
+const FORMULAS = {
+  SPD: { mix: [['spe', 1]], body: [] },
+  AGI: { mix: [['spe', 0.7], ['spd', 0.3]], body: [{ f: 'nimble' }] },
+  STR: { mix: [['atk', 0.7], ['hp', 0.3]], body: [{ f: 'mass' }] },
+  AWR: { mix: [['spa', 0.5], ['spd', 0.5]], body: [] },
+  THP: { mix: [['hi', 0.6], ['lo', 0.4]], body: [{ f: 'hands', base: 0.55, scale: 0.45 }] },
+  THA: { mix: [['spa', 0.65], ['spd', 0.35]], body: [{ f: 'hands', base: 0.3, scale: 0.7 }] },
+  CTH: { mix: [['spd', 0.45], ['spe', 0.3], ['spa', 0.25]], body: [{ f: 'hands', base: 0.3, scale: 0.7 }, { f: 'reach' }] },
+  CAR: { mix: [['hp', 0.5], ['def', 0.5]], body: [{ f: 'hands', base: 0.6, scale: 0.4 }] },
+  RBK: { mix: [['def', 0.45], ['atk', 0.35], ['hp', 0.2]], body: [{ f: 'mass' }] },
+  PBK: { mix: [['def', 0.45], ['spd', 0.3], ['hp', 0.25]], body: [{ f: 'mass' }] },
+  PRS: { mix: [['atk', 0.5], ['spe', 0.3], ['hp', 0.2]], body: [{ f: 'mass', pow: 0.5 }] },
+  TAK: { mix: [['atk', 0.5], ['def', 0.3], ['hp', 0.2]], body: [{ f: 'mass', pow: 0.7 }] },
+  COV: { mix: [['spe', 0.5], ['spd', 0.3], ['spa', 0.2]], body: [{ f: 'nimble' }] },
+  KPW: { mix: [['atk', 1]], body: [{ f: 'legs', base: 0.3, scale: 0.7 }] },
+  KAC: { mix: [['spa', 0.6], ['spd', 0.4]], body: [{ f: 'legs', base: 0.3, scale: 0.7 }] },
+  STA: { mix: [['hp', 0.6], ['def', 0.4]], body: [] },
+};
+const MIX_LABELS = { hp: 'HP', atk: 'Atk', def: 'Def', spa: 'SpA', spd: 'SpD', spe: 'Spe', hi: 'higher of Atk and SpA', lo: 'lower of Atk and SpA' };
+const BODY_LABELS = { mass: 'weight', nimble: 'light body', reach: 'height', hands: 'hands', legs: 'legs' };
+
+const ATTR_NAMES = {
+  SPD: 'Speed', AGI: 'Agility', STR: 'Strength', AWR: 'Awareness', THP: 'Throw Power', THA: 'Throw Accuracy',
+  CTH: 'Catching', CAR: 'Carrying', RBK: 'Run Block', PBK: 'Pass Block', PRS: 'Pass Rush', TAK: 'Tackling',
+  COV: 'Coverage', KPW: 'Kick Power', KAC: 'Kick Accuracy', STA: 'Stamina',
+};
+const ATTRS = Object.entries(FORMULAS).map(([key, f]) => ({
+  key,
+  name: ATTR_NAMES[key],
+  from: [...new Set([...f.mix.flatMap(([k]) => (k === 'hi' || k === 'lo' ? ['Atk', 'SpA'] : [MIX_LABELS[k]])), ...f.body.map((b) => BODY_LABELS[b.f])])].join(', '),
+}));
 const ATTR_KEYS = ATTRS.map((a) => a.key);
 
 const POSITIONS = {
@@ -1563,40 +1583,69 @@ function realStats(speciesId, level, ivs, natureIdx, ability) {
   return out;
 }
 
+// Size factors: 1 + k × log2(size ÷ reference), kept between lo and hi.
+const BODY_RULES = {
+  mass: { k: 0.07, ref: 60, unit: 'kg', lo: 0.8, hi: 1.2 },
+  reach: { k: 0.06, ref: 1.5, unit: 'm', lo: 0.88, hi: 1.12 },
+  nimble: { k: -0.04, ref: 60, unit: 'kg', lo: 0.88, hi: 1.1 },
+};
+const sizeRule = (rule, x) => clamp(1 + rule.k * Math.log2(x / rule.ref), rule.lo, rule.hi);
+
 function sizeFactors(sp) {
   const kg = Math.max(sp.w / 10, 0.1);
   const m = Math.max(sp.h / 10, 0.1);
   return {
-    mass: clamp(1 + 0.07 * Math.log2(kg / 60), 0.8, 1.2),
-    reach: clamp(1 + 0.06 * Math.log2(m / 1.5), 0.88, 1.12),
-    nimble: clamp(1 - 0.04 * Math.log2(kg / 60), 0.88, 1.1),
+    mass: sizeRule(BODY_RULES.mass, kg),
+    reach: sizeRule(BODY_RULES.reach, m),
+    nimble: sizeRule(BODY_RULES.nimble, kg),
     hands: SHAPE_HANDS[sp.shape] ?? 0.6,
     legs: SHAPE_LEGS[sp.shape] ?? 0.6,
   };
 }
 
+function bodyFactor(b, f) {
+  if (b.f === 'hands' || b.f === 'legs') return b.base + b.scale * f[b.f];
+  const v = f[b.f];
+  if (!b.pow || b.pow === 1) return v;
+  return b.pow === 0.5 ? Math.sqrt(v) : v ** b.pow;
+}
+
 function rawAttributes(sp, s, level) {
   const f = sizeFactors(sp);
   // HP has a level bonus the other stats lack; remove it so the blends weigh like with like.
-  const hp = Math.max(1, s.hp - level - 5);
-  return {
-    SPD: s.spe,
-    AGI: (0.7 * s.spe + 0.3 * s.spd) * f.nimble,
-    STR: (0.7 * s.atk + 0.3 * hp) * f.mass,
-    AWR: 0.5 * s.spa + 0.5 * s.spd,
-    THP: (0.6 * Math.max(s.atk, s.spa) + 0.4 * Math.min(s.atk, s.spa)) * (0.55 + 0.45 * f.hands),
-    THA: (0.65 * s.spa + 0.35 * s.spd) * (0.3 + 0.7 * f.hands),
-    CTH: (0.45 * s.spd + 0.3 * s.spe + 0.25 * s.spa) * (0.3 + 0.7 * f.hands) * f.reach,
-    CAR: (0.5 * hp + 0.5 * s.def) * (0.6 + 0.4 * f.hands),
-    RBK: (0.45 * s.def + 0.35 * s.atk + 0.2 * hp) * f.mass,
-    PBK: (0.45 * s.def + 0.3 * s.spd + 0.25 * hp) * f.mass,
-    PRS: (0.5 * s.atk + 0.3 * s.spe + 0.2 * hp) * Math.sqrt(f.mass),
-    TAK: (0.5 * s.atk + 0.3 * s.def + 0.2 * hp) * f.mass ** 0.7,
-    COV: (0.5 * s.spe + 0.3 * s.spd + 0.2 * s.spa) * f.nimble,
-    KPW: s.atk * (0.3 + 0.7 * f.legs),
-    KAC: (0.6 * s.spa + 0.4 * s.spd) * (0.3 + 0.7 * f.legs),
-    STA: 0.6 * hp + 0.4 * s.def,
-  };
+  const stats = { ...s, hp: Math.max(1, s.hp - level - 5), hi: Math.max(s.atk, s.spa), lo: Math.min(s.atk, s.spa) };
+  const out = {};
+  for (const [key, formula] of Object.entries(FORMULAS)) {
+    let v = 0;
+    for (const [k, w] of formula.mix) v += w * stats[k];
+    for (const b of formula.body) v *= bodyFactor(b, f);
+    out[key] = v;
+  }
+  return out;
+}
+
+// Step-by-step math for one rating of one player, for the Scouting page. Uses the same pieces as
+// rate(), so the final number always matches the rating shown everywhere else.
+function explainRating(p, key) {
+  const sp = DEX.get(p.species);
+  const ability = abilityOf(p.species, p.abilitySlot);
+  const s = realStats(p.species, p.level, p.ivs, p.nature, ability);
+  const f = sizeFactors(sp);
+  const stats = { ...s, hp: Math.max(1, s.hp - p.level - 5), hi: Math.max(s.atk, s.spa), lo: Math.min(s.atk, s.spa) };
+  const formula = FORMULAS[key];
+  const parts = formula.mix.map(([k, w]) => ({ stat: k, weight: w, value: stats[k] }));
+  let v = 0;
+  for (const part of parts) v += part.weight * part.value;
+  const mix = v;
+  const factors = formula.body.map((b) => {
+    const x = bodyFactor(b, f);
+    v *= x;
+    return { f: b.f, value: x };
+  });
+  const abilityMod = RATING_ABILITIES[ability]?.[key] ?? 1;
+  const statBoost = STAT_ABILITIES[ability] ?? null;
+  const rating = clamp(Math.round((99 * v * abilityMod) / RATING_REF[key]), 1, 99);
+  return { parts, mix, factors, raw: v, ability, abilityMod, statBoost, ref: RATING_REF[key], rating, kg: sp.w / 10, m: sp.h / 10, shape: sp.shape };
 }
 
 // The 99.5th-percentile raw value of each attribute among all Pokémon at level 100, perfect IVs.
@@ -3552,8 +3601,137 @@ function addToLineup(side, species, pos) {
   return weakest;
 }
 
+// ---- ui/howratings.js
+// "How ratings are calculated" on the Scouting page. Every number here comes from the engine's own
+// tables (FORMULAS, BODY_RULES, shape tables, position weights, ability modifiers), so the
+// description always matches the math.
+
+
+
+
+const hrPct = (w) => `${Math.round(w * 100)}%`;
+const hrX = (v) => `×${v.toFixed(2)}`;
+const hrAttrName = Object.fromEntries(ATTRS.map((a) => [a.key, a.name]));
+const HR_RANGE_WORDS = {
+  mass: ['lightest', 'heaviest'], nimble: ['heaviest', 'lightest'], reach: ['shortest', 'tallest'],
+};
+
+// One body factor as a readable range, e.g. "weight ×0.80 (lightest) to ×1.20 (heaviest)".
+function hrBodyText(b) {
+  if (b.f === 'hands' || b.f === 'legs') {
+    const table = b.f === 'hands' ? SHAPE_HANDS : SHAPE_LEGS;
+    const lo = b.base + b.scale * Math.min(...Object.values(table));
+    const hi = b.base + b.scale * Math.max(...Object.values(table));
+    return `${b.f} ${hrX(lo)} (fins) to ${hrX(hi)} (humanoid)`;
+  }
+  const rule = BODY_RULES[b.f];
+  const pow = b.pow ?? 1;
+  const label = { mass: 'weight', nimble: 'light body', reach: 'height' }[b.f];
+  const [loWord, hiWord] = HR_RANGE_WORDS[b.f];
+  return `${label} ${hrX(rule.lo ** pow)} (${loWord}) to ${hrX(rule.hi ** pow)} (${hiWord})`;
+}
+
+function hrMixText(mix) {
+  return mix.map(([k, w]) => `${hrPct(w)} ${MIX_LABELS[k]}`).join(' + ');
+}
+
+// How many Pokémon hit 99 in each rating, as the range across all 16 ratings.
+let hrTopRange = null;
+function hrTopCount() {
+  if (hrTopRange) return hrTopRange;
+  const counts = Object.fromEntries(ATTRS.map((a) => [a.key, 0]));
+  for (const sp of POKEDEX) {
+    const r = ratingOf(exhibitionPlayer(sp.id, 100));
+    for (const a of ATTRS) if (r.attrs[a.key] === 99) counts[a.key]++;
+  }
+  hrTopRange = [Math.min(...Object.values(counts)), Math.max(...Object.values(counts))];
+  return hrTopRange;
+}
+
+function hrShapeExamples() {
+  const first = {};
+  for (const sp of POKEDEX) if (!first[sp.shape]) first[sp.shape] = sp.id;
+  return first;
+}
+
+function hrWorkedExample(player, key) {
+  const sp = DEX.get(player.species);
+  const e = explainRating(player, key);
+  const bodyLine = e.factors.map((x) => {
+    if (x.f === 'hands' || x.f === 'legs') return `${hrX(x.value)} for ${x.f} (${esc(SHAPE_LABELS[e.shape] ?? e.shape)} body)`;
+    if (x.f === 'reach') return `${hrX(x.value)} for height (${e.m.toFixed(1)} m)`;
+    return `${hrX(x.value)} for ${x.f === 'mass' ? 'weight' : 'light body'} (${e.kg.toFixed(1)} kg)`;
+  });
+  const abilityName = ABILITIES[e.ability] ?? e.ability;
+  return `<div class="stack" style="gap:6px">
+    <div class="row" style="gap:8px">${mon(sp.id, '', 'xs')}<b>${esc(sp.name)}: ${hrAttrName[key]}</b>
+      <select id="sc-how-attr" data-action="sc-how-attr" aria-label="Rating to explain">${ATTRS.map((a) => `<option value="${a.key}"${a.key === key ? ' selected' : ''}>${a.name}</option>`).join('')}</select></div>
+    <ol class="small" style="margin:0;padding-left:20px;display:grid;gap:4px">
+      <li>Stats at full strength: ${e.parts.map((x) => `${MIX_LABELS[x.stat]} ${x.value} × ${hrPct(x.weight)}`).join(' + ')} = <b>${e.mix.toFixed(1)}</b>${e.statBoost ? ` (after ${esc(abilityName)})` : ''}</li>
+      ${bodyLine.length ? `<li>Body: ${bodyLine.join(', ')} → <b>${e.raw.toFixed(1)}</b></li>` : ''}
+      ${e.abilityMod !== 1 ? `<li>${esc(abilityName)}: ${hrX(e.abilityMod)}</li>` : ''}
+      <li>Scale: 99 × ${e.raw.toFixed(1)}${e.abilityMod !== 1 ? ` × ${e.abilityMod}` : ''} ÷ ${e.ref.toFixed(1)} (the 99.5th-percentile Pokémon) = <b>${hrAttrName[key]} ${e.rating}</b></li>
+    </ol>
+    <div class="faint small">Pick any Pokémon in the table to see its math.</div>
+  </div>`;
+}
+
+function ratingsExplainer(open, player, exampleKey) {
+  const summary = `<p style="margin:0;max-width:75ch">Every rating comes from three things: the Pokémon's real base stats, its size, and its body shape. Everyone plays at full strength (level 100, perfect IVs, neutral nature) with whichever of its abilities rates best. Each of the 16 football ratings blends a few stats, adjusts for size and shape, and is scaled so that 99 matches the top 0.5% of all 1,025 Pokémon. A position overall is a weighted mix of those ratings.</p>`;
+  const toggle = `<button class="btn small" data-action="sc-how" aria-expanded="${open}">${open ? 'Hide the formulas' : 'Show the formulas'}</button>`;
+  if (!open) {
+    return `<div class="panel stack"><div class="spread"><h2>How ratings are calculated</h2>${toggle}</div>${summary}</div>`;
+  }
+  const examples = hrShapeExamples();
+  const shapes = Object.keys(SHAPE_HANDS).sort((a, b) => SHAPE_HANDS[b] - SHAPE_HANDS[a] || SHAPE_LEGS[b] - SHAPE_LEGS[a]);
+  const abilityRows = [...new Set([...Object.keys(STAT_ABILITIES), ...Object.keys(RATING_ABILITIES)])].map((slug) => {
+    const effects = [
+      ...Object.entries(STAT_ABILITIES[slug] ?? {}).map(([k, v]) => `${MIX_LABELS[k]} ${hrX(v)}`),
+      ...Object.entries(RATING_ABILITIES[slug] ?? {}).map(([k, v]) => `${hrAttrName[k]} ${hrX(v)}`),
+    ];
+    return `<tr><td class="l"><b>${esc(ABILITIES[slug] ?? slug)}</b></td><td class="l">${effects.join(', ')}</td></tr>`;
+  }).join('');
+  return `<div class="panel stack">
+    <div class="spread"><h2>How ratings are calculated</h2>${toggle}</div>
+    ${summary}
+    <div class="grid-2" style="align-items:start">
+      <div class="stack">
+        <div><h3>1. Real stats</h3>
+          <p class="small" style="margin:4px 0 0">Each stat uses the main-series formula at full strength: <b>2 × base + 36</b>, and HP is <b>2 × base + 141</b>. A 100 base stat becomes 236. In the blends below, HP drops its level bonus so it weighs the same as the other stats. A few abilities change a stat first (see step 6).</p></div>
+        <div><h3>2. Football ratings</h3>
+          <p class="small" style="margin:4px 0 6px">Each rating blends real stats, then multiplies by its body factors.</p>
+          <div class="table-wrap"><table class="data wrap"><thead><tr><th class="l">Rating</th><th class="l">Stat blend</th><th class="l">Body factors</th></tr></thead><tbody>
+          ${ATTRS.map((a) => `<tr><td class="l"><b>${a.name}</b> <span class="faint">${a.key}</span></td><td class="l small">${hrMixText(FORMULAS[a.key].mix)}</td><td class="l small">${FORMULAS[a.key].body.map(hrBodyText).join('; ') || '<span class="faint">none</span>'}</td></tr>`).join('')}
+          </tbody></table></div></div>
+        <div><h3>3. The 1-99 scale</h3>
+          <p class="small" style="margin:4px 0 0">A rating is 99 × the Pokémon's raw value ÷ the raw value of the Pokémon at the 99.5th percentile for that rating, rounded and kept between 1 and 99. Only ${hrTopCount()[0]} to ${hrTopCount()[1]} Pokémon reach 99 in each rating. A Pokémon with half the top raw value rates about 50.</p></div>
+      </div>
+      <div class="stack">
+        <div><h3>Worked example</h3>${player ? hrWorkedExample(player, exampleKey) : ''}</div>
+        <div><h3>4. Body shape</h3>
+          <p class="small" style="margin:4px 0 6px">The Pokédex body shape sets how well a Pokémon can hold a ball (hands) and kick one (legs). Weight helps blocking, tackling and strength. A light body helps agility and coverage. Height helps catching. Each size factor is 1 + k × log₂(size ÷ reference): reference ${BODY_RULES.mass.ref} kg for weight and ${BODY_RULES.reach.ref} m for height.</p>
+          <div class="table-wrap"><table class="data"><thead><tr><th class="l">Body shape</th><th class="l">First Pokémon with it</th><th>Hands</th><th>Legs</th></tr></thead><tbody>
+          ${shapes.map((sh) => `<tr><td class="l">${esc(SHAPE_LABELS[sh])}</td><td class="l"><span class="who">${mon(examples[sh], '', 'xs')}<span>${esc(DEX.get(examples[sh]).name)}</span></span></td><td>${hrPct(SHAPE_HANDS[sh])}</td><td>${hrPct(SHAPE_LEGS[sh])}</td></tr>`).join('')}
+          </tbody></table></div></div>
+      </div>
+    </div>
+    <div class="grid-2" style="align-items:start">
+      <div><h3>5. Position overall</h3>
+        <p class="small" style="margin:4px 0 6px">The overall at a position is a weighted mix of ratings, scaled the same way (99 = the 99.5th percentile at that position). You choose each Pokémon's position, so this is only a guide.</p>
+        <div class="table-wrap"><table class="data wrap"><thead><tr><th class="l">Position</th><th class="l">Weights</th></tr></thead><tbody>
+        ${POS_KEYS.map((k) => `<tr><td class="l"><b>${POSITIONS[k].name}</b></td><td class="l small">${Object.entries(POSITIONS[k].w).sort((a, b) => b[1] - a[1]).map(([r, w]) => `${hrAttrName[r]} ${hrPct(w)}`).join(' · ')}</td></tr>`).join('')}
+        </tbody></table></div></div>
+      <div><h3>6. Abilities that change ratings</h3>
+        <p class="small" style="margin:4px 0 6px">These abilities change a stat or a rating before any game. Each Pokémon uses whichever of its abilities rates best. Other abilities, such as Intimidate or Truant, act during games instead; the player card lists each effect.</p>
+        <div class="table-wrap"><table class="data wrap"><tbody>${abilityRows}</tbody></table></div>
+        <p class="small muted" style="margin:10px 0 0">Ratings leave out types and weather. Those count during games: in every one-on-one matchup, each player's types are checked against the other's with the real type chart.</p></div>
+    </div>
+  </div>`;
+}
+
 // ---- ui/scout.js
 // Scouting: every Pokémon's football ratings, sortable, with a full player card.
+
 
 
 
@@ -3610,6 +3788,7 @@ function renderScout() {
     <div class="spread">
       <div><h1>Scouting</h1><div class="muted">All ${POKEDEX.length.toLocaleString()} Pokémon, rated as football players from their real stats.</div></div>
     </div>
+    ${ratingsExplainer(f.how, selPlayer, f.howAttr)}
     <div class="panel">
       <div class="row" style="align-items:flex-end">
         <label class="field" style="flex:2 1 180px">Search<input type="search" id="sc-q" data-action="sc-q" placeholder="Name or Pokédex number" value="${esc(f.q)}"></label>
@@ -3661,6 +3840,8 @@ function handleScout(action, el) {
       return true;
     }
     case 'sc-pick': f.sel = Number(el.dataset.id); return true;
+    case 'sc-how': f.how = !f.how; return true;
+    case 'sc-how-attr': f.howAttr = el.value; return true;
     case 'sc-add': {
       const side = el.dataset.side;
       const slot = addToLineup(side, Number(el.dataset.id), el.dataset.pos);

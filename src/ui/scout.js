@@ -5,6 +5,7 @@ import { exhibitionPlayer, ratingOf } from '../engine/lineup.js';
 import { S, toast } from './state.js';
 import { esc, mon, typeChips, ovrBadge, playerCard, typeLabel } from './common.js';
 import { addToLineup, exTeam } from './exhibition.js';
+import { ratingsExplainer } from './howratings.js';
 
 const PAGE = 50;
 const REGIONS = ['Kanto', 'Johto', 'Hoenn', 'Sinnoh', 'Unova', 'Kalos', 'Alola', 'Galar', 'Paldea'];
@@ -56,6 +57,7 @@ export function renderScout() {
     <div class="spread">
       <div><h1>Scouting</h1><div class="muted">All ${POKEDEX.length.toLocaleString()} Pokémon, rated as football players from their real stats.</div></div>
     </div>
+    ${ratingsExplainer(f.how, selPlayer, f.howAttr)}
     <div class="panel">
       <div class="row" style="align-items:flex-end">
         <label class="field" style="flex:2 1 180px">Search<input type="search" id="sc-q" data-action="sc-q" placeholder="Name or Pokédex number" value="${esc(f.q)}"></label>
@@ -107,6 +109,8 @@ export function handleScout(action, el) {
       return true;
     }
     case 'sc-pick': f.sel = Number(el.dataset.id); return true;
+    case 'sc-how': f.how = !f.how; return true;
+    case 'sc-how-attr': f.howAttr = el.value; return true;
     case 'sc-add': {
       const side = el.dataset.side;
       const slot = addToLineup(side, Number(el.dataset.id), el.dataset.pos);
